@@ -29,3 +29,53 @@ def test_init_preserves_existing_config(tmp_path) -> None:
     assert result.exit_code == 0
     assert config_path.read_text(encoding="utf-8") == "project:\n  name: Existing\n"
     assert "Kept existing config" in result.output
+
+
+def test_task_create_writes_task_and_brief(tmp_path) -> None:
+    init_result = CliRunner().invoke(app, ["init", "--workspace", str(tmp_path)])
+    assert init_result.exit_code == 0
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "task",
+            "create",
+            "First task",
+            "--brief",
+            "Build the first task.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "TASK-0001 First task" in result.output
+    assert (tmp_path / ".team" / "tasks" / "TASK-0001" / "brief.md").read_text(
+        encoding="utf-8"
+    ) == "Build the first task.\n"
+
+
+def test_task_list_shows_created_tasks(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["task", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "TASK-0001" in result.output
+    assert "First task" in result.output
+
+
+def test_task_show_reports_missing_task(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["task", "show", "TASK-9999", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Task not found: TASK-9999" in result.output
