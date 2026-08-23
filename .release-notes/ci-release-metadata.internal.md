@@ -1,0 +1,1 @@
+- Added CI checks for Poetry tests, linting, dependency audit, SemVer, and release-note fragments.
