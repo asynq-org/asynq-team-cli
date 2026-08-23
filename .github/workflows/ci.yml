@@ -6,13 +6,25 @@ on:
     branches:
       - main
 
+defaults:
+  run:
+    working-directory: cli
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout CLI
+        uses: actions/checkout@v4
         with:
+          path: cli
           fetch-depth: 0
+
+      - name: Checkout Core
+        uses: actions/checkout@v4
+        with:
+          repository: asynq-org/asynq-team-core
+          path: core
 
       - uses: actions/setup-python@v5
         with:

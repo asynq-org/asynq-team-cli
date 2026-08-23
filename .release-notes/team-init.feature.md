@@ -1,0 +1,1 @@
+- Added `team init` to create local runtime directories, config, and SQLite database state.
