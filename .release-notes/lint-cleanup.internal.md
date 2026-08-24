@@ -1,0 +1,1 @@
+- Fixed Ruff lint failures and pinned the lint tool version for reproducible CI.

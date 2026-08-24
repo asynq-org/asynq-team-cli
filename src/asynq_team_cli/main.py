@@ -1,18 +1,16 @@
 """Typer entrypoint for the Asynq Team CLI."""
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
-from asynq_team_core.database import connect_database
-from asynq_team_core.database import initialize_database
-from asynq_team_core.project import initialize_project
+import typer
+from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.paths import get_project_layout
+from asynq_team_core.project import initialize_project
 from asynq_team_core.task_service import create_task_with_brief
 from asynq_team_core.tasks import get_task, list_tasks
-import typer
 
 from asynq_team_cli import __version__
-
 
 app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
@@ -39,7 +37,7 @@ def main(
 @app.command("init")
 def init_command(
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--workspace",
             "-w",
@@ -79,11 +77,11 @@ def init_command(
 def task_create_command(
     title: Annotated[str, typer.Argument(help="Task title.")],
     brief: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--brief", help="Task brief Markdown. Defaults to the title."),
     ] = None,
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--workspace",
             "-w",
@@ -115,7 +113,7 @@ def task_create_command(
 @task_app.command("list")
 def task_list_command(
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--workspace",
             "-w",
@@ -144,7 +142,7 @@ def task_list_command(
 def task_show_command(
     task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--workspace",
             "-w",

@@ -20,8 +20,8 @@ team = "asynq_team_cli.main:app"
 
 [tool.poetry.group.dev.dependencies]
 pip-audit = ">=2.7,<3"
-pytest = ">=8,<9"
-ruff = ">=0.6,<1"
+pytest = ">=9.0.3,<10"
+ruff = "==0.16.4"
 
 [tool.ruff]
 line-length = 100

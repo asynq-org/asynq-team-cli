@@ -9,7 +9,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 SEMVER_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 POETRY_VERSION_PATTERN = re.compile(r'^version\s*=\s*"([^"]+)"\s*$')
 PACKAGE_RELEVANT_PREFIXES = (
