@@ -1,0 +1,1 @@
+- Fixed release metadata checks so GitHub push workflows inspect the full pushed commit range.

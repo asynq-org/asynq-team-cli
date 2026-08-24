@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -80,6 +81,12 @@ def get_changed_files() -> list[str]:
     if os.environ.get("GITHUB_BASE_REF"):
         base_ref = f"origin/{os.environ['GITHUB_BASE_REF']}"
         command = ["git", "diff", "--name-only", f"{base_ref}...HEAD"]
+    elif os.environ.get("GITHUB_EVENT_NAME") == "push":
+        before_sha = get_push_before_sha()
+        if before_sha and not is_zero_sha(before_sha):
+            command = ["git", "diff", "--name-only", before_sha, "HEAD"]
+        else:
+            command = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
     else:
         command = ["git", "diff", "--name-only", "HEAD"]
 
@@ -104,6 +111,26 @@ def get_changed_files() -> list[str]:
         return []
 
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def get_push_before_sha() -> str:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return ""
+
+    path = Path(event_path)
+    if not path.is_file():
+        return ""
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    before_sha = data.get("before", "")
+    if not isinstance(before_sha, str):
+        return ""
+    return before_sha
+
+
+def is_zero_sha(value: str) -> bool:
+    return bool(value) and set(value) == {"0"}
 
 
 def get_untracked_files() -> list[str]:
