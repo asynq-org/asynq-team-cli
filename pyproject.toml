@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "asynq-team-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI for the local-first Asynq Team runtime."
 readme = "README.md"
 packages = [{ include = "asynq_team_cli", from = "src" }]

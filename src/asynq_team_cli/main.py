@@ -59,6 +59,13 @@ def init_command(
         bool,
         typer.Option("--overwrite-config", help="Replace an existing .team/config.yaml."),
     ] = False,
+    overwrite_defaults: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite-defaults",
+            help="Replace existing default agent, rule, and policy files.",
+        ),
+    ] = False,
 ) -> None:
     """Initialize local Asynq Team runtime state."""
     target_workspace = workspace or Path.cwd()
@@ -66,6 +73,7 @@ def init_command(
         target_workspace,
         project_name=project_name,
         overwrite_config=overwrite_config,
+        overwrite_defaults=overwrite_defaults,
     )
     initialize_database(initialization.layout.database_path)
 
@@ -74,6 +82,10 @@ def init_command(
         typer.echo(f"Created config: {initialization.layout.config_path}")
     else:
         typer.echo(f"Kept existing config: {initialization.layout.config_path}")
+    if initialization.created_default_files:
+        typer.echo(f"Created default files: {len(initialization.created_default_files)}")
+    else:
+        typer.echo("Kept existing default files")
     typer.echo(f"Database ready: {initialization.layout.database_path}")
 
 
