@@ -31,6 +31,39 @@ def test_init_preserves_existing_config(tmp_path) -> None:
     assert "Kept existing config" in result.output
 
 
+def test_status_reports_initialized_workspace(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["status", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Team dir: ok" in result.output
+    assert "Config: ok" in result.output
+    assert "Database: ok" in result.output
+    assert "Project: Asynq Team" in result.output
+
+
+def test_config_show_prints_runtime_config(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["config", "show", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "project:" in result.output
+    assert "name: Asynq Team" in result.output
+    assert "storage:" in result.output
+    assert "adapter: sqlite" in result.output
+
+
+def test_config_show_reports_missing_config(tmp_path) -> None:
+    result = CliRunner().invoke(app, ["config", "show", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Config not found:" in result.output
+
+
 def test_task_create_writes_task_and_brief(tmp_path) -> None:
     init_result = CliRunner().invoke(app, ["init", "--workspace", str(tmp_path)])
     assert init_result.exit_code == 0

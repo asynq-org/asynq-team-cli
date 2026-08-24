@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
+from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
@@ -14,7 +16,9 @@ from asynq_team_cli import __version__
 
 app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
+config_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
+app.add_typer(config_app, name="config")
 
 
 def print_version(value: bool) -> None:
@@ -71,6 +75,61 @@ def init_command(
     else:
         typer.echo(f"Kept existing config: {initialization.layout.config_path}")
     typer.echo(f"Database ready: {initialization.layout.database_path}")
+
+
+@app.command("status")
+def status_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show local runtime status."""
+    layout = get_project_layout(workspace or Path.cwd())
+
+    typer.echo(f"Workspace: {layout.workspace}")
+    typer.echo(f"Team dir: {_format_state(layout.team_dir.is_dir())} {layout.team_dir}")
+    typer.echo(f"Config: {_format_state(layout.config_path.is_file())} {layout.config_path}")
+    typer.echo(f"Database: {_format_state(layout.database_path.is_file())} {layout.database_path}")
+
+    if not layout.config_path.is_file():
+        typer.echo("Project: not initialized")
+        return
+
+    config = load_config(layout.config_path)
+    typer.echo(f"Project: {config.project.name}")
+    typer.echo(f"Storage adapter: {config.storage.adapter}")
+
+
+@config_app.command("show")
+def config_show_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show project-local runtime config."""
+    layout = get_project_layout(workspace or Path.cwd())
+    if not layout.config_path.is_file():
+        typer.echo(f"Config not found: {layout.config_path}", err=True)
+        raise typer.Exit(1)
+
+    config = load_config(layout.config_path)
+    typer.echo(yaml.safe_dump(config.to_mapping(), sort_keys=False).rstrip())
 
 
 @task_app.command("create")
@@ -170,3 +229,7 @@ def task_show_command(
         typer.echo(f"Assignee: {task.assignee_id}")
     if task.brief_artifact_path:
         typer.echo(f"Brief: {task.brief_artifact_path}")
+
+
+def _format_state(value: bool) -> str:
+    return "ok" if value else "missing"

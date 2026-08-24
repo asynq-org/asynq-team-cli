@@ -1,0 +1,1 @@
+- Added `team status` and `team config show` commands for local workspace inspection.
