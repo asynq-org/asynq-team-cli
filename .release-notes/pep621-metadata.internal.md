@@ -1,0 +1,1 @@
+- Moved package version metadata to the PEP 621 `project.version` field.

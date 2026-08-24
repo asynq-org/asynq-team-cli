@@ -7,10 +7,10 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 SEMVER_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-POETRY_VERSION_PATTERN = re.compile(r'^version\s*=\s*"([^"]+)"\s*$')
 PACKAGE_RELEVANT_PREFIXES = (
     "src/",
     "tests/",
@@ -29,7 +29,7 @@ def main() -> int:
     project_root = Path.cwd()
     errors = []
 
-    version = read_poetry_version(project_root / "pyproject.toml")
+    version = read_package_version(project_root / "pyproject.toml")
     if not SEMVER_PATTERN.match(version):
         errors.append(f"Package version must use major.minor.patch SemVer, got: {version}")
 
@@ -59,21 +59,24 @@ def main() -> int:
     return 0
 
 
-def read_poetry_version(pyproject_path: Path) -> str:
-    in_poetry_section = False
-    for line in pyproject_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped == "[tool.poetry]":
-            in_poetry_section = True
-            continue
-        if in_poetry_section and stripped.startswith("["):
-            break
-        if in_poetry_section:
-            match = POETRY_VERSION_PATTERN.match(stripped)
-            if match:
-                return match.group(1)
+def read_package_version(pyproject_path: Path) -> str:
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
-    raise ValueError("tool.poetry.version must be defined.")
+    project = data.get("project", {})
+    if isinstance(project, dict):
+        version = project.get("version")
+        if isinstance(version, str):
+            return version
+
+    tool = data.get("tool", {})
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry", {})
+        if isinstance(poetry, dict):
+            version = poetry.get("version")
+            if isinstance(version, str):
+                return version
+
+    raise ValueError("project.version or tool.poetry.version must be defined.")
 
 
 def get_changed_files() -> list[str]:

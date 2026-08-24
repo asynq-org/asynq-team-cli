@@ -26,7 +26,7 @@ files = [
 
 [[package]]
 name = "asynq-team-core"
-version = "0.1.0"
+version = "0.1.2"
 description = "Local-first core runtime for Asynq Team."
 optional = false
 python-versions = ">=3.12,<4"
@@ -1350,4 +1350,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4"
-content-hash = "361da0c6aeeaeca6a72495ea2d6a3dae73583629dc9edddb858d4e783c003bbe"
+content-hash = "dd6def0d8fe508ffae4aa72c2040e48a75f46e27d1c8c578a7b1339b3f186ea8"

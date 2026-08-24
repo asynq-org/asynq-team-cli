@@ -2,11 +2,18 @@
 requires = ["poetry-core>=1.9,<3"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry]
+[project]
 name = "asynq-team-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI for the local-first Asynq Team runtime."
 readme = "README.md"
+requires-python = ">=3.12,<4"
+dynamic = ["dependencies"]
+
+[project.scripts]
+team = "asynq_team_cli.main:app"
+
+[tool.poetry]
 packages = [{ include = "asynq_team_cli", from = "src" }]
 
 [tool.poetry.dependencies]
@@ -15,9 +22,6 @@ asynq-team-core = { path = "../core", develop = true }
 PyYAML = ">=6,<7"
 rich = ">=13,<15"
 typer = ">=0.12,<1"
-
-[tool.poetry.scripts]
-team = "asynq_team_cli.main:app"
 
 [tool.poetry.group.dev.dependencies]
 pip-audit = ">=2.7,<3"
