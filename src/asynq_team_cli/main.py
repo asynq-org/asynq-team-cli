@@ -11,6 +11,7 @@ from asynq_team_core.approvals import (
     grant_approval,
     list_approvals,
 )
+from asynq_team_core.comments import create_task_comment, list_task_comments
 from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
@@ -402,6 +403,73 @@ def task_show_command(
         typer.echo(f"Assignee: {task.assignee_id}")
     if task.brief_artifact_path:
         typer.echo(f"Brief: {task.brief_artifact_path}")
+
+
+@task_app.command("comment")
+def task_comment_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    body: Annotated[str, typer.Argument(help="Comment body.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    mention: Annotated[
+        list[str] | None,
+        typer.Option("--mention", help="Recipient id to mention. Can be used multiple times."),
+    ] = None,
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+) -> None:
+    """Add a comment to a task."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        created = create_task_comment(
+            connection,
+            task_id=task_id,
+            body=body,
+            author_type="human",
+            author_id=actor_id,
+            mentions=tuple(mention or ()),
+        )
+
+    typer.echo(f"{created.comment.id} {created.comment.task_id}")
+    if created.mentions:
+        typer.echo(f"Mentions: {len(created.mentions)}")
+
+
+@task_app.command("comments")
+def task_comments_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum comments to show.")] = 50,
+) -> None:
+    """List comments for a task."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        comments = list_task_comments(connection, task_id=task_id, limit=limit)
+
+    if not comments:
+        typer.echo("No comments.")
+        return
+
+    for comment in comments:
+        typer.echo(f"{comment.id}  {comment.author_id}  {comment.body}")
 
 
 def _format_state(value: bool) -> str:

@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.3"
+    assert result.output.strip() == "0.1.4"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -220,6 +220,70 @@ def test_task_show_reports_missing_task(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Task not found: TASK-9999" in result.output
+
+
+def test_task_comment_creates_comment_and_mentions(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "comment",
+            "TASK-0001",
+            "Please review this.",
+            "--mention",
+            "supervisor",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    inbox_result = runner.invoke(
+        app,
+        ["inbox", "--workspace", str(tmp_path), "--recipient-id", "supervisor"],
+    )
+
+    assert result.exit_code == 0
+    assert "CMT-0001 TASK-0001" in result.output
+    assert "Mentions: 1" in result.output
+    assert "INBOX-0001" in inbox_result.output
+    assert "mention" in inbox_result.output
+
+
+def test_task_comments_lists_task_comments(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app,
+            [
+                "task",
+                "comment",
+                "TASK-0001",
+                "First comment.",
+                "--workspace",
+                str(tmp_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["task", "comments", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "CMT-0001" in result.output
+    assert "First comment." in result.output
 
 
 def _request_merge_approval(workspace) -> None:
