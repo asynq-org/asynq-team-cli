@@ -2,6 +2,17 @@
 
 `asynq-team-cli` is the terminal interface for local-first Asynq Team workspaces.
 
+Asynq Team is a local-first operating layer for working with AI agents as a small software team. It turns agent work into explicit tasks, reviewable artifacts, approval records, and audit trails instead of leaving important decisions buried in chat history.
+
+The CLI is useful when you want:
+
+- a project-local task ledger for agent and human work;
+- repeatable workspace initialization under `.team/`;
+- Markdown artifacts that are easy to inspect and review in git;
+- a local SQLite runtime instead of a hosted service requirement;
+- a clear inbox for questions, blockers, and approvals;
+- explicit approve/deny commands for sensitive actions.
+
 It helps initialize a `.team/` workspace, create tasks, inspect runtime config, and handle the MVP human attention loop through inbox and approval commands.
 
 The CLI is early and pre-1.0. Command names and output may change while the MVP is still taking shape.
