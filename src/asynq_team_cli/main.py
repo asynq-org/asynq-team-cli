@@ -17,6 +17,8 @@ from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
+from asynq_team_core.run_service import create_run_with_artifact_dir
+from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import create_task_with_brief
 from asynq_team_core.tasks import get_task, list_tasks
 
@@ -26,9 +28,11 @@ app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
 approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
+run_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
+app.add_typer(run_app, name="run")
 
 
 def print_version(value: bool) -> None:
@@ -472,6 +476,165 @@ def task_comments_command(
         typer.echo(f"{comment.id}  {comment.author_id}  {comment.body}")
 
 
+@run_app.command("create")
+def run_create_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    agent_id: Annotated[
+        str,
+        typer.Option("--agent-id", "--agent", help="Agent id for the run."),
+    ],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+) -> None:
+    """Create an agent run record and artifact directory."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        created = create_run_with_artifact_dir(
+            database_path=layout.database_path,
+            layout=layout,
+            task_id=task_id,
+            agent_id=agent_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        f"{created.run.id}  {created.run.task_id}  {created.run.agent_id}  "
+        f"{created.run.status.value}"
+    )
+    typer.echo(f"Artifacts: {created.run.artifact_dir_path}")
+
+
+@run_app.command("list")
+def run_list_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    task_id: Annotated[
+        str | None,
+        typer.Option("--task-id", help="Filter by task id."),
+    ] = None,
+    agent_id: Annotated[
+        str | None,
+        typer.Option("--agent-id", "--agent", help="Filter by agent id."),
+    ] = None,
+    status: Annotated[str, typer.Option("--status", help="Run status or all.")] = "all",
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum runs to show.")] = 50,
+) -> None:
+    """List run records."""
+    layout = get_project_layout(workspace or Path.cwd())
+    parsed_status = _parse_run_status(status)
+    with connect_database(layout.database_path) as connection:
+        runs = list_runs(
+            connection,
+            task_id=task_id,
+            agent_id=agent_id,
+            status=parsed_status,
+            limit=limit,
+        )
+
+    if not runs:
+        typer.echo("No runs.")
+        return
+
+    for run in runs:
+        typer.echo(f"{run.id}  {run.status.value}  {run.task_id}  {run.agent_id}")
+
+
+@run_app.command("show")
+def run_show_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show a run record."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        run = get_run(connection, run_id)
+
+    if run is None:
+        typer.echo(f"Run not found: {run_id}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"ID: {run.id}")
+    typer.echo(f"Task: {run.task_id}")
+    typer.echo(f"Agent: {run.agent_id}")
+    typer.echo(f"Status: {run.status.value}")
+    if run.artifact_dir_path:
+        typer.echo(f"Artifacts: {run.artifact_dir_path}")
+
+
+@run_app.command("status")
+def run_status_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    status: Annotated[str, typer.Argument(help="New run status.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+) -> None:
+    """Update a run status."""
+    layout = get_project_layout(workspace or Path.cwd())
+    parsed_status = _parse_run_status(status)
+    if parsed_status is None:
+        raise typer.BadParameter("status must be a concrete run status")
+
+    with connect_database(layout.database_path) as connection:
+        try:
+            run = update_run_status(
+                connection,
+                run_id=run_id,
+                status=parsed_status,
+                actor_type=actor_type,
+                actor_id=actor_id,
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+
+    typer.echo(f"{run.id}  {run.status.value}")
+
+
 def _format_state(value: bool) -> str:
     return "ok" if value else "missing"
 
@@ -492,3 +655,13 @@ def _parse_inbox_status(value: str) -> InboxItemStatus | None:
         return InboxItemStatus(value)
     except ValueError as exc:
         raise typer.BadParameter("status must be open, done, or all") from exc
+
+
+def _parse_run_status(value: str) -> RunStatus | None:
+    if value == "all":
+        return None
+    try:
+        return RunStatus(value)
+    except ValueError as exc:
+        allowed = ", ".join(status.value for status in RunStatus)
+        raise typer.BadParameter(f"status must be one of: {allowed}, or all") from exc

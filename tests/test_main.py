@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.4"
+    assert result.output.strip() == "0.1.5"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -284,6 +284,121 @@ def test_task_comments_lists_task_comments(tmp_path) -> None:
     assert result.exit_code == 0
     assert "CMT-0001" in result.output
     assert "First comment." in result.output
+
+
+def test_run_create_writes_run_and_artifact_dir(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "create",
+            "TASK-0001",
+            "--agent-id",
+            "george",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "RUN-0001  TASK-0001  george  created" in result.output
+    assert "Artifacts: .team/runs/george/RUN-0001" in result.output
+    assert (tmp_path / ".team" / "runs" / "george" / "RUN-0001").is_dir()
+
+
+def test_run_list_shows_created_runs(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app,
+            [
+                "run",
+                "create",
+                "TASK-0001",
+                "--agent-id",
+                "george",
+                "--workspace",
+                str(tmp_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["run", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "RUN-0001  created  TASK-0001  george" in result.output
+
+
+def test_run_status_updates_run(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app,
+            [
+                "run",
+                "create",
+                "TASK-0001",
+                "--agent-id",
+                "george",
+                "--workspace",
+                str(tmp_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    status_result = runner.invoke(
+        app,
+        [
+            "run",
+            "status",
+            "RUN-0001",
+            "planning",
+            "--workspace",
+            str(tmp_path),
+            "--actor-type",
+            "agent",
+            "--actor-id",
+            "george",
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert status_result.exit_code == 0
+    assert "RUN-0001  planning" in status_result.output
+    assert show_result.exit_code == 0
+    assert "Status: planning" in show_result.output
+
+
+def test_run_show_reports_missing_run(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["run", "show", "RUN-9999", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Run not found: RUN-9999" in result.output
 
 
 def _request_merge_approval(workspace) -> None:
