@@ -5,8 +5,15 @@ from typing import Annotated
 
 import typer
 import yaml
+from asynq_team_core.approvals import (
+    ApprovalStatus,
+    deny_approval,
+    grant_approval,
+    list_approvals,
+)
 from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
+from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
 from asynq_team_core.task_service import create_task_with_brief
@@ -17,8 +24,10 @@ from asynq_team_cli import __version__
 app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
+approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
+app.add_typer(approvals_app, name="approvals")
 
 
 def print_version(value: bool) -> None:
@@ -144,6 +153,158 @@ def config_show_command(
     typer.echo(yaml.safe_dump(config.to_mapping(), sort_keys=False).rstrip())
 
 
+@app.command("inbox")
+def inbox_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    recipient_id: Annotated[
+        str | None,
+        typer.Option("--recipient-id", help="Inbox recipient id. Defaults to all recipients."),
+    ] = None,
+    status: Annotated[str, typer.Option("--status", help="open, done, or all.")] = "open",
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum items to show.")] = 50,
+) -> None:
+    """List inbox items that need attention."""
+    layout = get_project_layout(workspace or Path.cwd())
+    parsed_status = _parse_inbox_status(status)
+    with connect_database(layout.database_path) as connection:
+        items = list_inbox_items(
+            connection,
+            recipient_id=recipient_id,
+            status=parsed_status,
+            limit=limit,
+        )
+
+    if not items:
+        typer.echo("No inbox items.")
+        return
+
+    for item in items:
+        typer.echo(
+            f"{item.id}  {item.status.value}  {item.recipient_id}  "
+            f"{item.item_type.value}  {item.title}"
+        )
+
+
+@approvals_app.callback(invoke_without_command=True)
+def approvals_command(
+    context: typer.Context,
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    approver_id: Annotated[
+        str | None,
+        typer.Option("--approver-id", help="Approval owner id. Defaults to all approvers."),
+    ] = None,
+    status: Annotated[str, typer.Option("--status", help="pending, granted, denied, or all.")] = (
+        "pending"
+    ),
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum approvals to show.")] = 50,
+) -> None:
+    """List approvals or decide a pending approval."""
+    if context.invoked_subcommand is not None:
+        return
+
+    layout = get_project_layout(workspace or Path.cwd())
+    parsed_status = _parse_approval_status(status)
+    with connect_database(layout.database_path) as connection:
+        approvals = list_approvals(
+            connection,
+            status=parsed_status,
+            approver_id=approver_id,
+            limit=limit,
+        )
+
+    if not approvals:
+        typer.echo("No approvals.")
+        return
+
+    for approval in approvals:
+        typer.echo(
+            f"{approval.id}  {approval.status.value}  {approval.approver_id}  "
+            f"{approval.action}  {approval.reason}"
+        )
+
+
+@approvals_app.command("approve")
+def approval_approve_command(
+    approval_id: Annotated[str, typer.Argument(help="Approval id, such as APR-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
+) -> None:
+    """Approve a pending approval."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        decision = grant_approval(
+            connection,
+            approval_id,
+            actor_type="human",
+            actor_id=actor_id,
+            reason=reason,
+        )
+
+    typer.echo(f"Approved {decision.approval.id}")
+
+
+@approvals_app.command("deny")
+def approval_deny_command(
+    approval_id: Annotated[str, typer.Argument(help="Approval id, such as APR-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
+) -> None:
+    """Deny a pending approval."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        decision = deny_approval(
+            connection,
+            approval_id,
+            actor_type="human",
+            actor_id=actor_id,
+            reason=reason,
+        )
+
+    typer.echo(f"Denied {decision.approval.id}")
+
+
 @task_app.command("create")
 def task_create_command(
     title: Annotated[str, typer.Argument(help="Task title.")],
@@ -245,3 +406,21 @@ def task_show_command(
 
 def _format_state(value: bool) -> str:
     return "ok" if value else "missing"
+
+
+def _parse_approval_status(value: str) -> ApprovalStatus | None:
+    if value == "all":
+        return None
+    try:
+        return ApprovalStatus(value)
+    except ValueError as exc:
+        raise typer.BadParameter("status must be pending, granted, denied, or all") from exc
+
+
+def _parse_inbox_status(value: str) -> InboxItemStatus | None:
+    if value == "all":
+        return None
+    try:
+        return InboxItemStatus(value)
+    except ValueError as exc:
+        raise typer.BadParameter("status must be open, done, or all") from exc
