@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.7"
+    assert result.output.strip() == "0.1.8"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -485,6 +485,56 @@ def test_run_submit_rejects_unstarted_run(tmp_path) -> None:
     assert "Run cannot be submitted from status: created" in result.output
 
 
+def test_review_approves_submitted_run_and_mentions_agent(tmp_path) -> None:
+    runner = CliRunner()
+    _create_submitted_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "review",
+            "RUN-0001",
+            "approve",
+            "Looks ready.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    inbox_result = runner.invoke(
+        app,
+        ["inbox", "--workspace", str(tmp_path), "--recipient-id", "george"],
+    )
+
+    assert result.exit_code == 0
+    assert "RUN-0001  approved" in result.output
+    assert "Review: .team/runs/george/RUN-0001/review.md" in result.output
+    assert "Agent notice: CMT-0002 -> george" in result.output
+    review_artifact = tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md"
+    assert review_artifact.is_file()
+    assert "Looks ready." in review_artifact.read_text(encoding="utf-8")
+    assert "Mention on TASK-0001" in inbox_result.output
+
+
+def test_review_rejects_unsubmitted_run(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "review",
+            "RUN-0001",
+            "return",
+            "Please submit first.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run cannot be reviewed from status: created" in result.output
+
+
 def _request_merge_approval(workspace) -> None:
     layout = get_project_layout(workspace)
     with connect_database(layout.database_path) as connection:
@@ -496,6 +546,28 @@ def _request_merge_approval(workspace) -> None:
             requester_id="george",
             approver_id="founder",
         )
+
+
+def _create_submitted_cli_run(runner: CliRunner, workspace) -> None:
+    _create_cli_run(runner, workspace)
+    assert (
+        runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(workspace)]).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app,
+            [
+                "run",
+                "submit",
+                "RUN-0001",
+                "Implemented the first pass.",
+                "--workspace",
+                str(workspace),
+            ],
+        ).exit_code
+        == 0
+    )
 
 
 def _create_cli_run(runner: CliRunner, workspace) -> None:

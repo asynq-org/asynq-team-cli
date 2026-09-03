@@ -17,6 +17,7 @@ from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
+from asynq_team_core.run_review import RunReviewDecision, review_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_run_for_review
 from asynq_team_core.run_work import prepare_run_work_packet
@@ -134,6 +135,51 @@ def status_command(
     config = load_config(layout.config_path)
     typer.echo(f"Project: {config.project.name}")
     typer.echo(f"Storage adapter: {config.storage.adapter}")
+
+
+@app.command("review")
+def review_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    decision: Annotated[str, typer.Argument(help="approve or return.")],
+    body: Annotated[str, typer.Argument(help="Review body Markdown.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Replace an existing review artifact."),
+    ] = False,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "supervisor",
+) -> None:
+    """Review a submitted run."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        review = review_run(
+            database_path=layout.database_path,
+            layout=layout,
+            run_id=run_id,
+            decision=_parse_review_decision(decision),
+            body_md=body,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            overwrite=overwrite,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{review.run.id}  {review.run.status.value}")
+    typer.echo(f"Review: {review.artifact.relative_path}")
+    typer.echo(f"Agent notice: {review.comment.comment.id} -> {review.run.agent_id}")
 
 
 @config_app.command("show")
@@ -760,3 +806,10 @@ def _parse_run_status(value: str) -> RunStatus | None:
     except ValueError as exc:
         allowed = ", ".join(status.value for status in RunStatus)
         raise typer.BadParameter(f"status must be one of: {allowed}, or all") from exc
+
+
+def _parse_review_decision(value: str) -> RunReviewDecision:
+    try:
+        return RunReviewDecision(value)
+    except ValueError as exc:
+        raise typer.BadParameter("decision must be approve or return") from exc

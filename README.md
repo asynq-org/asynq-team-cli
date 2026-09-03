@@ -87,6 +87,9 @@ poetry run team run work RUN-0001 --workspace /path/to/workspace
 poetry run team run submit RUN-0001 "Implemented the first pass." \
   --checks "- poetry run pytest" \
   --workspace /path/to/workspace
+
+poetry run team review RUN-0001 approve "Looks ready." \
+  --workspace /path/to/workspace
 ```
 
 Review inbox items and approvals:
