@@ -20,6 +20,7 @@ from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.doctor import run_doctor
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
+from asynq_team_core.policy import evaluate_agent_capability
 from asynq_team_core.project import initialize_project
 from asynq_team_core.run_review import RunReviewDecision, review_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
@@ -40,6 +41,7 @@ approval_app = typer.Typer(no_args_is_help=True)
 run_app = typer.Typer(no_args_is_help=True)
 backup_app = typer.Typer(no_args_is_help=True)
 audit_app = typer.Typer(no_args_is_help=True)
+policy_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
@@ -47,6 +49,7 @@ app.add_typer(approval_app, name="approval")
 app.add_typer(run_app, name="run")
 app.add_typer(backup_app, name="backup")
 app.add_typer(audit_app, name="audit")
+app.add_typer(policy_app, name="policy")
 
 
 def print_version(value: bool) -> None:
@@ -424,6 +427,37 @@ def audit_show_command(
             f"{event.created_at}  {event.event_type}  "
             f"{event.actor_type}:{event.actor_id}  {event.entity_type}:{event.entity_id}"
         )
+
+
+@policy_app.command("check")
+def policy_check_command(
+    agent_id: Annotated[str, typer.Argument(help="Agent id, such as george.")],
+    capability: Annotated[str, typer.Argument(help="Capability name, such as main.merge.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show the capability policy decision for an agent."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        evaluation = evaluate_agent_capability(layout, agent_id, capability)
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        f"{evaluation.agent_id}  {evaluation.role}  {evaluation.capability}  "
+        f"{evaluation.decision.value}"
+    )
+    typer.echo(f"Reason: {evaluation.reason}")
 
 
 @app.command("inbox")

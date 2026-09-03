@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.14"
+    assert result.output.strip() == "0.1.15"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -181,6 +181,46 @@ def test_audit_show_reports_missing_task(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Task not found: TASK-9999" in result.output
+
+
+def test_policy_check_reports_allowed_capability(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["policy", "check", "george", "repo.read", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "george  engineer  repo.read  allow" in result.output
+    assert "Capability is allowed for role: engineer" in result.output
+
+
+def test_policy_check_reports_approval_requirement(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["policy", "check", "george", "main.merge", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "george  engineer  main.merge  require_approval" in result.output
+
+
+def test_policy_check_reports_missing_agent(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["policy", "check", "missing", "repo.read", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "Agent manifest not found" in result.output
 
 
 def test_inbox_lists_attention_items(tmp_path) -> None:

@@ -1,0 +1,1 @@
+- Add `team policy check` to inspect an agent capability decision from the CLI.
