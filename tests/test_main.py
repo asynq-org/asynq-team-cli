@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.6"
+    assert result.output.strip() == "0.1.7"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -427,6 +427,62 @@ def test_run_work_preserves_existing_packet_by_default(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Run work packet already exists" in result.output
+
+
+def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    assert (
+        runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)]).exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "submit",
+            "RUN-0001",
+            "Implemented the first pass.",
+            "--checks",
+            "- poetry run pytest",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    inbox_result = runner.invoke(
+        app,
+        ["inbox", "--workspace", str(tmp_path), "--recipient-id", "supervisor"],
+    )
+
+    assert result.exit_code == 0
+    assert "RUN-0001  waiting_for_review" in result.output
+    assert "Result: .team/runs/george/RUN-0001/result.md" in result.output
+    assert "Review request: CMT-0001 -> supervisor" in result.output
+    result_artifact = tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "result.md"
+    assert result_artifact.is_file()
+    assert "- poetry run pytest" in result_artifact.read_text(encoding="utf-8")
+    assert "Mention on TASK-0001" in inbox_result.output
+
+
+def test_run_submit_rejects_unstarted_run(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "submit",
+            "RUN-0001",
+            "Not ready.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run cannot be submitted from status: created" in result.output
 
 
 def _request_merge_approval(workspace) -> None:

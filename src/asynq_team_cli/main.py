@@ -18,6 +18,7 @@ from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
 from asynq_team_core.run_service import create_run_with_artifact_dir
+from asynq_team_core.run_submission import submit_run_for_review
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import create_task_with_brief
@@ -674,6 +675,59 @@ def run_work_command(
 
     typer.echo(f"{packet.run.id}  {packet.run.status.value}")
     typer.echo(f"Work packet: {packet.artifact.relative_path}")
+
+
+@run_app.command("submit")
+def run_submit_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    summary: Annotated[str, typer.Argument(help="Review summary Markdown.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    checks: Annotated[
+        str | None,
+        typer.Option("--checks", help="Checks or test results Markdown."),
+    ] = None,
+    reviewer_id: Annotated[
+        str,
+        typer.Option("--reviewer-id", "--reviewer", help="Reviewer recipient id."),
+    ] = "supervisor",
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Replace an existing result artifact."),
+    ] = False,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Submit a run result for review."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        submission = submit_run_for_review(
+            database_path=layout.database_path,
+            layout=layout,
+            run_id=run_id,
+            summary_md=summary,
+            checks_md=checks,
+            reviewer_id=reviewer_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            overwrite=overwrite,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{submission.run.id}  {submission.run.status.value}")
+    typer.echo(f"Result: {submission.artifact.relative_path}")
+    typer.echo(f"Review request: {submission.comment.comment.id} -> {reviewer_id}")
 
 
 def _format_state(value: bool) -> str:
