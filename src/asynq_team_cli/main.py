@@ -8,6 +8,7 @@ import yaml
 from asynq_team_core.approvals import (
     ApprovalStatus,
     deny_approval,
+    get_approval,
     grant_approval,
     list_approvals,
 )
@@ -33,11 +34,13 @@ app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
 approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
+approval_app = typer.Typer(no_args_is_help=True)
 run_app = typer.Typer(no_args_is_help=True)
 backup_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
+app.add_typer(approval_app, name="approval")
 app.add_typer(run_app, name="run")
 app.add_typer(backup_app, name="backup")
 
@@ -211,6 +214,60 @@ def review_command(
     typer.echo(f"Agent notice: {review.comment.comment.id} -> {review.run.agent_id}")
 
 
+@app.command("approve")
+def approve_command(
+    approval_id: Annotated[str, typer.Argument(help="Approval id, such as APR-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
+) -> None:
+    """Approve a pending approval."""
+    _decide_approval_command(
+        approval_id=approval_id,
+        workspace=workspace,
+        actor_id=actor_id,
+        reason=reason,
+        approve=True,
+    )
+
+
+@app.command("deny")
+def deny_command(
+    approval_id: Annotated[str, typer.Argument(help="Approval id, such as APR-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
+) -> None:
+    """Deny a pending approval."""
+    _decide_approval_command(
+        approval_id=approval_id,
+        workspace=workspace,
+        actor_id=actor_id,
+        reason=reason,
+        approve=False,
+    )
+
+
 @config_app.command("show")
 def config_show_command(
     workspace: Annotated[
@@ -233,6 +290,42 @@ def config_show_command(
 
     config = load_config(layout.config_path)
     typer.echo(yaml.safe_dump(config.to_mapping(), sort_keys=False).rstrip())
+
+
+@approval_app.command("show")
+def approval_show_command(
+    approval_id: Annotated[str, typer.Argument(help="Approval id, such as APR-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show an approval request."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        approval = get_approval(connection, approval_id)
+
+    if approval is None:
+        typer.echo(f"Approval not found: {approval_id}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"ID: {approval.id}")
+    typer.echo(f"Action: {approval.action}")
+    typer.echo(f"Status: {approval.status.value}")
+    typer.echo(f"Reason: {approval.reason}")
+    typer.echo(f"Requester: {approval.requester_type}:{approval.requester_id}")
+    typer.echo(f"Approver: {approval.approver_id}")
+    if approval.subject_type and approval.subject_id:
+        typer.echo(f"Subject: {approval.subject_type}:{approval.subject_id}")
+    if approval.decision_reason:
+        typer.echo(f"Decision reason: {approval.decision_reason}")
 
 
 @backup_app.command("run")
@@ -402,17 +495,13 @@ def approval_approve_command(
     reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
 ) -> None:
     """Approve a pending approval."""
-    layout = get_project_layout(workspace or Path.cwd())
-    with connect_database(layout.database_path) as connection:
-        decision = grant_approval(
-            connection,
-            approval_id,
-            actor_type="human",
-            actor_id=actor_id,
-            reason=reason,
-        )
-
-    typer.echo(f"Approved {decision.approval.id}")
+    _decide_approval_command(
+        approval_id=approval_id,
+        workspace=workspace,
+        actor_id=actor_id,
+        reason=reason,
+        approve=True,
+    )
 
 
 @approvals_app.command("deny")
@@ -433,17 +522,43 @@ def approval_deny_command(
     reason: Annotated[str | None, typer.Option("--reason", help="Decision reason.")] = None,
 ) -> None:
     """Deny a pending approval."""
+    _decide_approval_command(
+        approval_id=approval_id,
+        workspace=workspace,
+        actor_id=actor_id,
+        reason=reason,
+        approve=False,
+    )
+
+
+def _decide_approval_command(
+    approval_id: str,
+    workspace: Path | None,
+    actor_id: str,
+    reason: str | None,
+    approve: bool,
+) -> None:
     layout = get_project_layout(workspace or Path.cwd())
     with connect_database(layout.database_path) as connection:
-        decision = deny_approval(
-            connection,
-            approval_id,
-            actor_type="human",
-            actor_id=actor_id,
-            reason=reason,
-        )
+        if approve:
+            decision = grant_approval(
+                connection,
+                approval_id,
+                actor_type="human",
+                actor_id=actor_id,
+                reason=reason,
+            )
+        else:
+            decision = deny_approval(
+                connection,
+                approval_id,
+                actor_type="human",
+                actor_id=actor_id,
+                reason=reason,
+            )
 
-    typer.echo(f"Denied {decision.approval.id}")
+    verb = "Approved" if approve else "Denied"
+    typer.echo(f"{verb} {decision.approval.id}")
 
 
 @task_app.command("create")

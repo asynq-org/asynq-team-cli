@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.10"
+    assert result.output.strip() == "0.1.11"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -173,6 +173,30 @@ def test_approvals_lists_pending_approvals(tmp_path) -> None:
     assert "main.merge" in result.output
 
 
+def test_approval_show_prints_approval_detail(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _request_merge_approval(tmp_path)
+
+    result = runner.invoke(app, ["approval", "show", "APR-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "ID: APR-0001" in result.output
+    assert "Action: main.merge" in result.output
+    assert "Status: pending" in result.output
+    assert "Requester: agent:george" in result.output
+
+
+def test_approval_show_reports_missing_approval(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["approval", "show", "APR-9999", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Approval not found: APR-9999" in result.output
+
+
 def test_approvals_approve_marks_approval_done(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
@@ -203,6 +227,27 @@ def test_approvals_approve_marks_approval_done(tmp_path) -> None:
     assert inbox_result.output.strip() == "No inbox items."
 
 
+def test_approve_marks_approval_done(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _request_merge_approval(tmp_path)
+
+    approve_result = runner.invoke(
+        app,
+        ["approve", "APR-0001", "--workspace", str(tmp_path), "--reason", "Reviewed."],
+    )
+    approval_result = runner.invoke(
+        app,
+        ["approval", "show", "APR-0001", "--workspace", str(tmp_path)],
+    )
+
+    assert approve_result.exit_code == 0
+    assert "Approved APR-0001" in approve_result.output
+    assert approval_result.exit_code == 0
+    assert "Status: granted" in approval_result.output
+    assert "Decision reason: Reviewed." in approval_result.output
+
+
 def test_approvals_deny_marks_approval_denied(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
@@ -221,6 +266,23 @@ def test_approvals_deny_marks_approval_denied(tmp_path) -> None:
     assert "Denied APR-0001" in deny_result.output
     assert approvals_result.exit_code == 0
     assert "denied" in approvals_result.output
+
+
+def test_deny_marks_approval_denied(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _request_merge_approval(tmp_path)
+
+    deny_result = runner.invoke(app, ["deny", "APR-0001", "--workspace", str(tmp_path)])
+    approval_result = runner.invoke(
+        app,
+        ["approval", "show", "APR-0001", "--workspace", str(tmp_path)],
+    )
+
+    assert deny_result.exit_code == 0
+    assert "Denied APR-0001" in deny_result.output
+    assert approval_result.exit_code == 0
+    assert "Status: denied" in approval_result.output
 
 
 def test_task_create_writes_task_and_brief(tmp_path) -> None:

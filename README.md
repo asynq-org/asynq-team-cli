@@ -100,8 +100,11 @@ Review inbox items and approvals:
 ```bash
 poetry run team inbox --workspace /path/to/workspace
 poetry run team approvals --workspace /path/to/workspace
+poetry run team approval show APR-0001 --workspace /path/to/workspace
 poetry run team approvals approve APR-0001 --workspace /path/to/workspace
 poetry run team approvals deny APR-0002 --workspace /path/to/workspace
+poetry run team approve APR-0001 --workspace /path/to/workspace
+poetry run team deny APR-0002 --workspace /path/to/workspace
 ```
 
 ## Development
