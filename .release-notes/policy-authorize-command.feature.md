@@ -1,0 +1,1 @@
+- Add `team policy authorize` to allow, deny, or request approval for an agent capability.

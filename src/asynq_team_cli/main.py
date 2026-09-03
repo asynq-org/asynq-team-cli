@@ -20,7 +20,7 @@ from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.doctor import run_doctor
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
-from asynq_team_core.policy import evaluate_agent_capability
+from asynq_team_core.policy import authorize_agent_capability, evaluate_agent_capability
 from asynq_team_core.project import initialize_project
 from asynq_team_core.run_review import RunReviewDecision, review_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
@@ -458,6 +458,64 @@ def policy_check_command(
         f"{evaluation.decision.value}"
     )
     typer.echo(f"Reason: {evaluation.reason}")
+
+
+@policy_app.command("authorize")
+def policy_authorize_command(
+    agent_id: Annotated[str, typer.Argument(help="Agent id, such as george.")],
+    capability: Annotated[str, typer.Argument(help="Capability name, such as main.merge.")],
+    reason: Annotated[str, typer.Argument(help="Reason for the requested capability.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
+    subject_type: Annotated[
+        str | None,
+        typer.Option("--subject-type", help="Optional subject type, such as task or run."),
+    ] = None,
+    subject_id: Annotated[
+        str | None,
+        typer.Option("--subject-id", help="Optional subject id, such as TASK-0001."),
+    ] = None,
+) -> None:
+    """Authorize a capability or request the required approval."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        authorization = authorize_agent_capability(
+            database_path=layout.database_path,
+            layout=layout,
+            agent_id=agent_id,
+            capability=capability,
+            reason=reason,
+            approver_id=approver_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    evaluation = authorization.evaluation
+    typer.echo(
+        f"{evaluation.agent_id}  {evaluation.role}  {evaluation.capability}  "
+        f"{evaluation.decision.value}"
+    )
+    if authorization.approval_request is None:
+        typer.echo("Approval: not required")
+        return
+
+    approval = authorization.approval_request.approval
+    inbox_item = authorization.approval_request.inbox_item
+    typer.echo(f"Approval: {approval.id} -> {approval.approver_id}")
+    typer.echo(f"Inbox: {inbox_item.id} -> {inbox_item.recipient_id}")
 
 
 @app.command("inbox")

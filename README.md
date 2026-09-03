@@ -61,6 +61,10 @@ poetry run team backup run --workspace /path/to/workspace
 poetry run team backup list --workspace /path/to/workspace
 poetry run team audit show TASK-0001 --workspace /path/to/workspace
 poetry run team policy check george main.merge --workspace /path/to/workspace
+poetry run team policy authorize george main.merge "Merge reviewed changes." \
+  --subject-type run \
+  --subject-id RUN-0001 \
+  --workspace /path/to/workspace
 ```
 
 Create and list tasks:

@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.15"
+    assert result.output.strip() == "0.1.16"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -221,6 +221,76 @@ def test_policy_check_reports_missing_agent(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Agent manifest not found" in result.output
+
+
+def test_policy_authorize_allows_without_approval(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "policy",
+            "authorize",
+            "george",
+            "repo.read",
+            "Read project context.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "george  engineer  repo.read  allow" in result.output
+    assert "Approval: not required" in result.output
+
+
+def test_policy_authorize_requests_approval_for_gated_capability(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "policy",
+            "authorize",
+            "george",
+            "main.merge",
+            "Merge reviewed changes.",
+            "--workspace",
+            str(tmp_path),
+            "--subject-type",
+            "run",
+            "--subject-id",
+            "RUN-0001",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "george  engineer  main.merge  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Inbox: INBOX-0001 -> founder" in result.output
+
+
+def test_policy_authorize_rejects_denied_capability(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "policy",
+            "authorize",
+            "supervisor",
+            "repo.write",
+            "Write implementation changes.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Capability is denied for role: supervisor" in result.output
 
 
 def test_inbox_lists_attention_items(tmp_path) -> None:
