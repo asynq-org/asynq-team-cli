@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.9"
+    assert result.output.strip() == "0.1.10"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -114,6 +114,37 @@ def test_config_show_reports_missing_config(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Config not found:" in result.output
+
+
+def test_backup_run_writes_database_backup(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["backup", "run", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert ".team/backups/team-" in result.output
+    assert "bytes" in result.output
+    assert len(list((tmp_path / ".team" / "backups").glob("team-*.db"))) == 1
+
+
+def test_backup_list_shows_database_backups(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert runner.invoke(app, ["backup", "run", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["backup", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert ".team/backups/team-" in result.output
+    assert "bytes" in result.output
+
+
+def test_backup_run_reports_missing_database(tmp_path) -> None:
+    result = CliRunner().invoke(app, ["backup", "run", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Database is missing:" in result.output
 
 
 def test_inbox_lists_attention_items(tmp_path) -> None:

@@ -11,6 +11,7 @@ from asynq_team_core.approvals import (
     grant_approval,
     list_approvals,
 )
+from asynq_team_core.backups import create_database_backup, list_database_backups
 from asynq_team_core.comments import create_task_comment, list_task_comments
 from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
@@ -33,10 +34,12 @@ task_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
 approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
 run_app = typer.Typer(no_args_is_help=True)
+backup_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
 app.add_typer(run_app, name="run")
+app.add_typer(backup_app, name="backup")
 
 
 def print_version(value: bool) -> None:
@@ -230,6 +233,65 @@ def config_show_command(
 
     config = load_config(layout.config_path)
     typer.echo(yaml.safe_dump(config.to_mapping(), sort_keys=False).rstrip())
+
+
+@backup_app.command("run")
+def backup_run_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+) -> None:
+    """Create a local database backup."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        backup = create_database_backup(
+            database_path=layout.database_path,
+            layout=layout,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{backup.relative_path}  {backup.created_at}  {backup.size_bytes} bytes")
+
+
+@backup_app.command("list")
+def backup_list_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum backups to show.")] = 50,
+) -> None:
+    """List local database backups."""
+    layout = get_project_layout(workspace or Path.cwd())
+    backups = list_database_backups(layout, limit=limit)
+
+    if not backups:
+        typer.echo("No backups.")
+        return
+
+    for backup in backups:
+        typer.echo(f"{backup.relative_path}  {backup.created_at}  {backup.size_bytes} bytes")
 
 
 @app.command("inbox")
