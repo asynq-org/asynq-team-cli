@@ -55,6 +55,7 @@ Inspect the workspace:
 
 ```bash
 poetry run team status --workspace /path/to/workspace
+poetry run team doctor --workspace /path/to/workspace
 poetry run team config show --workspace /path/to/workspace
 ```
 

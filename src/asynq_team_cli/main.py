@@ -14,6 +14,7 @@ from asynq_team_core.approvals import (
 from asynq_team_core.comments import create_task_comment, list_task_comments
 from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
+from asynq_team_core.doctor import run_doctor
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
@@ -135,6 +136,31 @@ def status_command(
     config = load_config(layout.config_path)
     typer.echo(f"Project: {config.project.name}")
     typer.echo(f"Storage adapter: {config.storage.adapter}")
+
+
+@app.command("doctor")
+def doctor_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Run local workspace diagnostics."""
+    layout = get_project_layout(workspace or Path.cwd())
+    report = run_doctor(layout)
+
+    for check in report.checks:
+        typer.echo(f"{check.status.value}  {check.name}  {check.message}")
+
+    if report.has_failures:
+        raise typer.Exit(1)
 
 
 @app.command("review")

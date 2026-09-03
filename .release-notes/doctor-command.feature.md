@@ -1,0 +1,1 @@
+- Added a doctor command for local workspace diagnostics.

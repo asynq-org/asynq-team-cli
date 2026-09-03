@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.8"
+    assert result.output.strip() == "0.1.9"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -74,6 +74,26 @@ def test_status_reports_initialized_workspace(tmp_path) -> None:
     assert "Config: ok" in result.output
     assert "Database: ok" in result.output
     assert "Project: Asynq Team" in result.output
+
+
+def test_doctor_reports_initialized_workspace_with_warnings(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["doctor", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "pass  config" in result.output
+    assert "pass  migrations" in result.output
+    assert "warn  git_backup" in result.output
+
+
+def test_doctor_fails_for_uninitialized_workspace(tmp_path) -> None:
+    result = CliRunner().invoke(app, ["doctor", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "fail  config" in result.output
+    assert "fail  database" in result.output
 
 
 def test_config_show_prints_runtime_config(tmp_path) -> None:
