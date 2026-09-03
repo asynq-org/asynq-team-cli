@@ -18,6 +18,7 @@ from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.project import initialize_project
 from asynq_team_core.run_service import create_run_with_artifact_dir
+from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import create_task_with_brief
 from asynq_team_core.tasks import get_task, list_tasks
@@ -633,6 +634,46 @@ def run_status_command(
             raise typer.Exit(1) from exc
 
     typer.echo(f"{run.id}  {run.status.value}")
+
+
+@run_app.command("work")
+def run_work_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Replace an existing run work packet."),
+    ] = False,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Prepare a local work packet for a run."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        packet = prepare_run_work_packet(
+            database_path=layout.database_path,
+            layout=layout,
+            run_id=run_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            overwrite=overwrite,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{packet.run.id}  {packet.run.status.value}")
+    typer.echo(f"Work packet: {packet.artifact.relative_path}")
 
 
 def _format_state(value: bool) -> str:

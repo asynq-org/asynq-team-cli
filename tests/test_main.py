@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.5"
+    assert result.output.strip() == "0.1.6"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -401,6 +401,34 @@ def test_run_show_reports_missing_run(tmp_path) -> None:
     assert "Run not found: RUN-9999" in result.output
 
 
+def test_run_work_writes_packet_and_marks_run_working(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "RUN-0001  working" in result.output
+    assert "Work packet: .team/runs/george/RUN-0001/work.md" in result.output
+    work_packet = tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md"
+    assert work_packet.is_file()
+    assert "Build the first task." in work_packet.read_text(encoding="utf-8")
+
+
+def test_run_work_preserves_existing_packet_by_default(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    assert (
+        runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)]).exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Run work packet already exists" in result.output
+
+
 def _request_merge_approval(workspace) -> None:
     layout = get_project_layout(workspace)
     with connect_database(layout.database_path) as connection:
@@ -412,3 +440,38 @@ def _request_merge_approval(workspace) -> None:
             requester_id="george",
             approver_id="founder",
         )
+
+
+def _create_cli_run(runner: CliRunner, workspace) -> None:
+    assert runner.invoke(app, ["init", "--workspace", str(workspace)]).exit_code == 0
+    assert (
+        runner.invoke(
+            app,
+            [
+                "task",
+                "create",
+                "First task",
+                "--brief",
+                "Build the first task.",
+                "--workspace",
+                str(workspace),
+            ],
+        )
+        .exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app,
+            [
+                "run",
+                "create",
+                "TASK-0001",
+                "--agent-id",
+                "george",
+                "--workspace",
+                str(workspace),
+            ],
+        ).exit_code
+        == 0
+    )
