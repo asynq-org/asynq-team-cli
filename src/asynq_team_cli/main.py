@@ -24,6 +24,7 @@ from asynq_team_core.project import initialize_project
 from asynq_team_core.run_review import RunReviewDecision, review_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_run_for_review
+from asynq_team_core.run_task import start_task_run
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import create_task_with_brief
@@ -842,6 +843,52 @@ def run_create_command(
         f"{created.run.status.value}"
     )
     typer.echo(f"Artifacts: {created.run.artifact_dir_path}")
+
+
+@run_app.command("task")
+def run_task_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    agent_id: Annotated[
+        str,
+        typer.Option("--agent-id", "--agent", help="Agent id for the run."),
+    ],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[
+        str | None,
+        typer.Option("--actor-id", help="Audit actor id. Defaults to the agent id."),
+    ] = None,
+) -> None:
+    """Create a task run and prepare its local work packet."""
+    layout = get_project_layout(workspace or Path.cwd())
+    effective_actor_id = actor_id or agent_id
+    try:
+        started = start_task_run(
+            database_path=layout.database_path,
+            layout=layout,
+            task_id=task_id,
+            agent_id=agent_id,
+            actor_type=actor_type,
+            actor_id=effective_actor_id,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    run = started.work_packet.run
+    typer.echo(f"{run.id}  {run.task_id}  {run.agent_id}  {run.status.value}")
+    typer.echo(f"Artifacts: {run.artifact_dir_path}")
+    typer.echo(f"Work packet: {started.work_packet.artifact.relative_path}")
 
 
 @run_app.command("list")
