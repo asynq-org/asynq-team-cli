@@ -71,6 +71,7 @@ poetry run team task create "Review onboarding" \
 
 poetry run team task list --workspace /path/to/workspace
 poetry run team task show TASK-0001 --workspace /path/to/workspace
+poetry run team task status TASK-0001 in_progress --workspace /path/to/workspace
 poetry run team task comment TASK-0001 "Please review this." \
   --mention supervisor \
   --workspace /path/to/workspace

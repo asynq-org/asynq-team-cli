@@ -1,0 +1,1 @@
+- Added a task status command for audited task lifecycle updates.

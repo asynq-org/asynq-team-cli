@@ -27,7 +27,7 @@ from asynq_team_core.run_submission import submit_run_for_review
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import create_task_with_brief
-from asynq_team_core.tasks import get_task, list_tasks
+from asynq_team_core.tasks import TaskStatus, get_task, list_tasks, update_task_status
 
 from asynq_team_cli import __version__
 
@@ -698,6 +698,42 @@ def task_show_command(
         typer.echo(f"Brief: {task.brief_artifact_path}")
 
 
+@task_app.command("status")
+def task_status_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    status: Annotated[str, typer.Argument(help="New task status.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+) -> None:
+    """Update a task status."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        try:
+            task = update_task_status(
+                connection,
+                task_id=task_id,
+                status=_parse_task_status(status),
+                actor_type=actor_type,
+                actor_id=actor_id,
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+
+    typer.echo(f"{task.id}  {task.status.value}")
+
+
 @task_app.command("comment")
 def task_comment_command(
     task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
@@ -1037,6 +1073,14 @@ def _parse_inbox_status(value: str) -> InboxItemStatus | None:
         return InboxItemStatus(value)
     except ValueError as exc:
         raise typer.BadParameter("status must be open, done, or all") from exc
+
+
+def _parse_task_status(value: str) -> TaskStatus:
+    try:
+        return TaskStatus(value)
+    except ValueError as exc:
+        allowed = ", ".join(status.value for status in TaskStatus)
+        raise typer.BadParameter(f"status must be one of: {allowed}") from exc
 
 
 def _parse_run_status(value: str) -> RunStatus | None:

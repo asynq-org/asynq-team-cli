@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.12"
+    assert result.output.strip() == "0.1.13"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -366,6 +366,40 @@ def test_task_show_reports_missing_task(tmp_path) -> None:
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
 
     result = runner.invoke(app, ["task", "show", "TASK-9999", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Task not found: TASK-9999" in result.output
+
+
+def test_task_status_updates_task_status(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    status_result = runner.invoke(
+        app,
+        ["task", "status", "TASK-0001", "in_progress", "--workspace", str(tmp_path)],
+    )
+    show_result = runner.invoke(app, ["task", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert status_result.exit_code == 0
+    assert "TASK-0001  in_progress" in status_result.output
+    assert show_result.exit_code == 0
+    assert "Status: in_progress" in show_result.output
+
+
+def test_task_status_reports_missing_task(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["task", "status", "TASK-9999", "in_progress", "--workspace", str(tmp_path)],
+    )
 
     assert result.exit_code == 1
     assert "Task not found: TASK-9999" in result.output
