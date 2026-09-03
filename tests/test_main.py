@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.11"
+    assert result.output.strip() == "0.1.12"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -145,6 +145,42 @@ def test_backup_run_reports_missing_database(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Database is missing:" in result.output
+
+
+def test_audit_show_lists_task_scoped_events(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    assert (
+        runner.invoke(
+            app,
+            [
+                "task",
+                "comment",
+                "TASK-0001",
+                "Please review.",
+                "--workspace",
+                str(tmp_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["audit", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "task.created" in result.output
+    assert "run.created" in result.output
+    assert "comment.created" in result.output
+
+
+def test_audit_show_reports_missing_task(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["audit", "show", "TASK-9999", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Task not found: TASK-9999" in result.output
 
 
 def test_inbox_lists_attention_items(tmp_path) -> None:

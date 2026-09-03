@@ -1,0 +1,1 @@
+- Added an audit show command for task-scoped event history.

@@ -12,6 +12,7 @@ from asynq_team_core.approvals import (
     grant_approval,
     list_approvals,
 )
+from asynq_team_core.audit import list_task_audit_events
 from asynq_team_core.backups import create_database_backup, list_database_backups
 from asynq_team_core.comments import create_task_comment, list_task_comments
 from asynq_team_core.config import load_config
@@ -37,12 +38,14 @@ approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
 approval_app = typer.Typer(no_args_is_help=True)
 run_app = typer.Typer(no_args_is_help=True)
 backup_app = typer.Typer(no_args_is_help=True)
+audit_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
 app.add_typer(approval_app, name="approval")
 app.add_typer(run_app, name="run")
 app.add_typer(backup_app, name="backup")
+app.add_typer(audit_app, name="audit")
 
 
 def print_version(value: bool) -> None:
@@ -385,6 +388,41 @@ def backup_list_command(
 
     for backup in backups:
         typer.echo(f"{backup.relative_path}  {backup.created_at}  {backup.size_bytes} bytes")
+
+
+@audit_app.command("show")
+def audit_show_command(
+    task_id: Annotated[str, typer.Argument(help="Task id, such as TASK-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum events to show.")] = 100,
+) -> None:
+    """Show task-scoped audit events."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        events = list_task_audit_events(layout.database_path, task_id, limit=limit)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if not events:
+        typer.echo("No audit events.")
+        return
+
+    for event in events:
+        typer.echo(
+            f"{event.created_at}  {event.event_type}  "
+            f"{event.actor_type}:{event.actor_id}  {event.entity_type}:{event.entity_id}"
+        )
 
 
 @app.command("inbox")

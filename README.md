@@ -59,6 +59,7 @@ poetry run team doctor --workspace /path/to/workspace
 poetry run team config show --workspace /path/to/workspace
 poetry run team backup run --workspace /path/to/workspace
 poetry run team backup list --workspace /path/to/workspace
+poetry run team audit show TASK-0001 --workspace /path/to/workspace
 ```
 
 Create and list tasks:
