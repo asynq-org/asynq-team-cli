@@ -16,7 +16,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.37"
+    assert result.output.strip() == "0.1.38"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:

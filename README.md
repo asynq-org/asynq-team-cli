@@ -87,8 +87,11 @@ poetry run team policy authorize george main.merge "Merge reviewed changes." \
   --workspace /path/to/workspace
 poetry run team agent show george --workspace /path/to/workspace
 poetry run team runner check shell.test --workspace /path/to/workspace
-poetry run team runner exec RUN-0001 shell.test --workspace /path/to/workspace -- poetry run pytest
+poetry run -- team runner exec RUN-0001 shell.test --workspace /path/to/workspace -- poetry run pytest
 ```
+
+Use `poetry run -- team ...` for `runner exec` commands. The first `--` stops Poetry
+from parsing runner options before the second `--` passes the command argv to Asynq Team.
 
 Create and list tasks:
 
