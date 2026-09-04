@@ -15,7 +15,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.30"
+    assert result.output.strip() == "0.1.31"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1159,6 +1159,28 @@ def test_run_work_requests_artifact_approval_when_gated(tmp_path) -> None:
     assert "Approval: APR-0001 -> founder" in result.output
     assert "Status: created" in show_result.output
     assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md").exists()
+
+
+def test_run_work_resumes_after_granted_artifact_approval(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    _replace_engineer_capability_policy(tmp_path, "artifact.create", "require_approval")
+
+    blocked_result = runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)])
+    approve_result = runner.invoke(app, ["approve", "APR-0001", "--workspace", str(tmp_path)])
+    resumed_result = runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)])
+    approvals_result = runner.invoke(
+        app,
+        ["approvals", "--workspace", str(tmp_path), "--status", "granted"],
+    )
+
+    assert blocked_result.exit_code == 0
+    assert "Approval: APR-0001 -> founder" in blocked_result.output
+    assert approve_result.exit_code == 0
+    assert resumed_result.exit_code == 0
+    assert "RUN-0001  working" in resumed_result.output
+    assert "Approval: APR-0002" not in resumed_result.output
+    assert approvals_result.output.count("APR-") == 1
 
 
 def test_run_work_preserves_existing_packet_by_default(tmp_path) -> None:

@@ -1,0 +1,1 @@
+- Allow gated CLI workflows to continue when the matching approval has already been granted.
