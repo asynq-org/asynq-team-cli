@@ -1,0 +1,1 @@
+- Add an onboarding command for initializing and customizing local workspaces.

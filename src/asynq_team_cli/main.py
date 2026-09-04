@@ -2,7 +2,7 @@
 
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated
 
@@ -19,7 +19,7 @@ from asynq_team_core.approvals import (
 from asynq_team_core.audit import list_task_audit_events
 from asynq_team_core.backups import create_database_backup, list_database_backups
 from asynq_team_core.comments import create_authorized_task_comment, list_task_comments
-from asynq_team_core.config import load_config
+from asynq_team_core.config import load_config, write_config
 from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.doctor import run_doctor
 from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
@@ -241,6 +241,184 @@ def init_command(
     else:
         typer.echo("Kept existing default files")
     typer.echo(f"Database ready: {initialization.layout.database_path}")
+
+
+@app.command("onboard")
+def onboard_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory to onboard.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    project_name: Annotated[
+        str | None,
+        typer.Option("--project-name", help="Project name written to .team/config.yaml."),
+    ] = None,
+    git_remote: Annotated[
+        str | None,
+        typer.Option("--git-remote", help="Git remote used for artifact backup."),
+    ] = None,
+    default_model: Annotated[
+        str | None,
+        typer.Option("--default-model", "--model", help="Default model for generated agents."),
+    ] = None,
+    engineer_name: Annotated[
+        str | None,
+        typer.Option("--engineer-name", help="Display name for the default engineer agent."),
+    ] = None,
+    supervisor_name: Annotated[
+        str | None,
+        typer.Option("--supervisor-name", help="Display name for the supervisor agent."),
+    ] = None,
+    ea_name: Annotated[
+        str | None,
+        typer.Option("--ea-name", help="Display name for the EA agent."),
+    ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Accept defaults for omitted onboarding prompts."),
+    ] = False,
+) -> None:
+    """Initialize and customize a local Asynq Team workspace."""
+    target_workspace = _resolve_workspace(workspace)
+    initialization = initialize_project(target_workspace)
+    initialize_database(initialization.layout.database_path)
+
+    config = load_config(initialization.layout.config_path)
+    resolved_project_name = _onboarding_value(
+        project_name,
+        "Project name",
+        config.project.name,
+        yes=yes,
+    )
+    resolved_git_remote = _onboarding_value(
+        git_remote,
+        "Git backup remote",
+        config.git.remote,
+        yes=yes,
+        allow_empty=True,
+    )
+    resolved_model = _onboarding_value(
+        default_model,
+        "Default agent model",
+        "gpt-5-codex",
+        yes=yes,
+    )
+    resolved_names = {
+        "george": _onboarding_value(engineer_name, "Engineer display name", "George", yes=yes),
+        "supervisor": _onboarding_value(
+            supervisor_name,
+            "Supervisor display name",
+            "Supervisor",
+            yes=yes,
+        ),
+        "ea": _onboarding_value(ea_name, "EA display name", "EA", yes=yes),
+    }
+
+    updated_config = replace(
+        config,
+        project=replace(config.project, name=resolved_project_name),
+        git=replace(config.git, remote=resolved_git_remote),
+    )
+    write_config(initialization.layout.config_path, updated_config)
+    _update_agent_onboarding_files(initialization.layout.agents_dir, resolved_names, resolved_model)
+    _update_runner_policy_default_model(initialization.layout.policy_dir, resolved_model)
+
+    typer.echo(f"Onboarded Asynq Team in {initialization.layout.team_dir}")
+    typer.echo(f"Project: {resolved_project_name}")
+    typer.echo(f"Default model: {resolved_model}")
+    typer.echo(f"Agents: {', '.join(f'{agent}={name}' for agent, name in resolved_names.items())}")
+    typer.echo(f"Review policy files under: {initialization.layout.policy_dir}")
+
+
+def _onboarding_value(
+    value: str | None,
+    prompt: str,
+    default: str,
+    yes: bool,
+    allow_empty: bool = False,
+) -> str:
+    if value is not None:
+        return _clean_single_line(value, prompt, allow_empty=allow_empty)
+    if yes:
+        return default
+    return _clean_single_line(
+        typer.prompt(prompt, default=default),
+        prompt,
+        allow_empty=allow_empty,
+    )
+
+
+def _update_agent_onboarding_files(
+    agents_dir: Path,
+    display_names: dict[str, str],
+    default_model: str,
+) -> None:
+    for agent_id, display_name in display_names.items():
+        path = agents_dir / f"{agent_id}.yaml"
+        data = _load_yaml_file(path, f"Agent manifest {agent_id}")
+        data["display_name"] = display_name
+        runner = _get_yaml_mapping(data, "runner", f"Agent manifest {agent_id}")
+        runner["default_model"] = default_model
+        allowed_models = _get_yaml_list(runner, "allowed_models", f"Agent manifest {agent_id}")
+        if default_model not in allowed_models:
+            allowed_models.append(default_model)
+        _write_yaml_file(path, data)
+
+
+def _update_runner_policy_default_model(policy_dir: Path, default_model: str) -> None:
+    path = policy_dir / "runners.yaml"
+    data = _load_yaml_file(path, "Runner policy")
+    runners = _get_yaml_mapping(data, "runners", "Runner policy")
+    codex = _get_yaml_mapping(runners, "codex", "Runner policy")
+    allowed_models = _get_yaml_list(codex, "allowed_models", "Runner policy")
+    if default_model not in allowed_models:
+        allowed_models.append(default_model)
+    _write_yaml_file(path, data)
+
+
+def _load_yaml_file(path: Path, document_name: str) -> dict:
+    if not path.is_file():
+        raise ValueError(f"{document_name} not found: {path}")
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise TypeError(f"{document_name} root must be a mapping.")
+    return data
+
+
+def _write_yaml_file(path: Path, data: dict) -> None:
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _get_yaml_mapping(data: dict, key: str, document_name: str) -> dict:
+    value = data.get(key)
+    if not isinstance(value, dict):
+        raise TypeError(f"{document_name} field must be a mapping: {key}")
+    return value
+
+
+def _get_yaml_list(data: dict, key: str, document_name: str) -> list:
+    value = data.setdefault(key, [])
+    if not isinstance(value, list):
+        raise TypeError(f"{document_name} field must be a list: {key}")
+    return value
+
+
+def _clean_single_line(value: str, field_name: str, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string.")
+    clean_value = value.strip()
+    if not clean_value and not allow_empty:
+        raise ValueError(f"{field_name} must be a non-empty string.")
+    if "\n" in clean_value or "\r" in clean_value:
+        raise ValueError(f"{field_name} must be a single line.")
+    return clean_value
 
 
 @app.command("status")

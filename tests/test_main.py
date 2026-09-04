@@ -16,7 +16,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.39"
+    assert result.output.strip() == "0.1.40"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -88,6 +88,64 @@ def test_init_can_overwrite_existing_default_files(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "roles:" in policy_path.read_text(encoding="utf-8")
+
+
+def test_onboard_accepts_non_interactive_options(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "onboard",
+            "--workspace",
+            str(tmp_path),
+            "--project-name",
+            "Smoke Company",
+            "--git-remote",
+            "git@github.com:example/team-state.git",
+            "--default-model",
+            "gpt-5-codex-large",
+            "--engineer-name",
+            "Ada",
+            "--supervisor-name",
+            "Grace",
+            "--ea-name",
+            "Mina",
+            "--yes",
+        ],
+    )
+
+    config = yaml.safe_load((tmp_path / ".team" / "config.yaml").read_text(encoding="utf-8"))
+    george = yaml.safe_load((tmp_path / ".team" / "agents" / "george.yaml").read_text())
+    supervisor = yaml.safe_load(
+        (tmp_path / ".team" / "agents" / "supervisor.yaml").read_text()
+    )
+    ea = yaml.safe_load((tmp_path / ".team" / "agents" / "ea.yaml").read_text())
+    runners = yaml.safe_load((tmp_path / ".team" / "policy" / "runners.yaml").read_text())
+
+    assert result.exit_code == 0
+    assert "Onboarded Asynq Team" in result.output
+    assert config["project"]["name"] == "Smoke Company"
+    assert config["git"]["remote"] == "git@github.com:example/team-state.git"
+    assert george["display_name"] == "Ada"
+    assert george["runner"]["default_model"] == "gpt-5-codex-large"
+    assert "gpt-5-codex-large" in george["runner"]["allowed_models"]
+    assert supervisor["display_name"] == "Grace"
+    assert ea["display_name"] == "Mina"
+    assert "gpt-5-codex-large" in runners["runners"]["codex"]["allowed_models"]
+
+
+def test_onboard_prompts_for_missing_values(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        ["onboard", "--workspace", str(tmp_path)],
+        input="Prompt Company\n\ngpt-5-codex\nBuilder\nReviewer\nAssistant\n",
+    )
+
+    config = yaml.safe_load((tmp_path / ".team" / "config.yaml").read_text(encoding="utf-8"))
+    george = yaml.safe_load((tmp_path / ".team" / "agents" / "george.yaml").read_text())
+
+    assert result.exit_code == 0
+    assert config["project"]["name"] == "Prompt Company"
+    assert george["display_name"] == "Builder"
 
 
 def test_workspace_context_supports_commands_without_workspace_option(tmp_path) -> None:
