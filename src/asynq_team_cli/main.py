@@ -28,8 +28,14 @@ from asynq_team_core.run_submission import submit_run_for_review
 from asynq_team_core.run_task import start_task_run
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
-from asynq_team_core.task_service import create_task_with_brief
-from asynq_team_core.tasks import TaskStatus, get_task, list_tasks, update_task_status
+from asynq_team_core.task_service import create_follow_up_task, create_task_with_brief
+from asynq_team_core.tasks import (
+    TaskStatus,
+    get_task,
+    list_follow_up_tasks,
+    list_tasks,
+    update_task_status,
+)
 
 from asynq_team_cli import __version__
 
@@ -729,6 +735,56 @@ def task_create_command(
     typer.echo(f"Brief: {created.brief.relative_path}")
 
 
+@task_app.command("follow-up")
+def task_follow_up_command(
+    parent_task_id: Annotated[str, typer.Argument(help="Parent task id, such as TASK-0001.")],
+    title: Annotated[str, typer.Argument(help="Follow-up task title.")],
+    brief: Annotated[
+        str | None,
+        typer.Option("--brief", help="Follow-up brief Markdown. Defaults to the title."),
+    ] = None,
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    priority: Annotated[str, typer.Option("--priority", help="Task priority.")] = "normal",
+    assignee_id: Annotated[
+        str | None,
+        typer.Option("--assignee-id", "--assignee", help="Optional assignee id."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Create a linked follow-up task."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        created = create_follow_up_task(
+            database_path=layout.database_path,
+            layout=layout,
+            parent_task_id=parent_task_id,
+            title=title,
+            brief_md=brief or title,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            priority=priority,
+            assignee_id=assignee_id,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{created.task.id} {created.task.title}")
+    typer.echo(f"Parent: {created.parent_task.id}")
+    typer.echo(f"Brief: {created.brief.relative_path}")
+
+
 @task_app.command("list")
 def task_list_command(
     workspace: Annotated[
@@ -787,8 +843,17 @@ def task_show_command(
     typer.echo(f"Priority: {task.priority}")
     if task.assignee_id:
         typer.echo(f"Assignee: {task.assignee_id}")
+    if task.parent_task_id:
+        typer.echo(f"Parent: {task.parent_task_id}")
     if task.brief_artifact_path:
         typer.echo(f"Brief: {task.brief_artifact_path}")
+
+    with connect_database(layout.database_path) as connection:
+        follow_ups = list_follow_up_tasks(connection, task.id)
+    if follow_ups:
+        typer.echo("Follow-ups:")
+        for follow_up in follow_ups:
+            typer.echo(f"- {follow_up.id}  {follow_up.status.value}  {follow_up.title}")
 
 
 @task_app.command("status")

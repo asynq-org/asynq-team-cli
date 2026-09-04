@@ -10,7 +10,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.16"
+    assert result.output.strip() == "0.1.17"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -453,6 +453,66 @@ def test_task_create_writes_task_and_brief(tmp_path) -> None:
     assert (tmp_path / ".team" / "tasks" / "TASK-0001" / "brief.md").read_text(
         encoding="utf-8"
     ) == "Build the first task.\n"
+
+
+def test_task_follow_up_creates_linked_task_and_brief(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "follow-up",
+            "TASK-0001",
+            "Refine review checklist",
+            "--brief",
+            "Capture a review checklist.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_parent = runner.invoke(app, ["task", "show", "TASK-0001", "--workspace", str(tmp_path)])
+    show_follow_up = runner.invoke(
+        app,
+        ["task", "show", "TASK-0002", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "TASK-0002 Refine review checklist" in result.output
+    assert "Parent: TASK-0001" in result.output
+    assert "Brief: .team/tasks/TASK-0002/brief.md" in result.output
+    assert "Follow-ups:" in show_parent.output
+    assert "- TASK-0002  created  Refine review checklist" in show_parent.output
+    assert "Parent: TASK-0001" in show_follow_up.output
+    assert (tmp_path / ".team" / "tasks" / "TASK-0002" / "brief.md").read_text(
+        encoding="utf-8"
+    ) == "Capture a review checklist.\n"
+
+
+def test_task_follow_up_reports_missing_parent(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "follow-up",
+            "TASK-9999",
+            "Refine review checklist",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Parent task not found: TASK-9999" in result.output
 
 
 def test_task_list_shows_created_tasks(tmp_path) -> None:

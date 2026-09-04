@@ -74,6 +74,10 @@ poetry run team task create "Review onboarding" \
   --brief "Check first-run setup and list blockers." \
   --workspace /path/to/workspace
 
+poetry run team task follow-up TASK-0001 "Document review checklist" \
+  --brief "Capture the checklist as a future scoped improvement." \
+  --workspace /path/to/workspace
+
 poetry run team task list --workspace /path/to/workspace
 poetry run team task show TASK-0001 --workspace /path/to/workspace
 poetry run team task status TASK-0001 in_progress --workspace /path/to/workspace
