@@ -16,7 +16,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.35"
+    assert result.output.strip() == "0.1.36"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1398,6 +1398,33 @@ def test_run_audit_git_records_git_diff_file_changes(tmp_path) -> None:
     assert "modified  repos/core/src/example.py" in result.output
     assert "run.file_changed" in audit_result.output
     assert "modified repos/core/src/example.py" in audit_result.output
+
+
+def test_run_audit_git_records_untracked_files_without_head(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    repo = tmp_path / "repos" / "core"
+    source = repo / "src" / "example.py"
+    source.parent.mkdir(parents=True)
+    _run_git(repo, "init")
+    source.write_text("print('new')\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "audit-git",
+            "RUN-0001",
+            "--repo",
+            "repos/core",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Recorded 1 file change(s)." in result.output
+    assert "added  repos/core/src/example.py" in result.output
 
 
 def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:

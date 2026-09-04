@@ -1835,6 +1835,9 @@ def _parse_run_file_change_type(value: str) -> RunFileChangeType:
 
 def _load_git_name_status(repo_path: Path, base: str) -> tuple[GitFileChange, ...]:
     clean_base = _require_non_empty(base, "base")
+    if clean_base == "HEAD" and not _git_has_head(repo_path):
+        return _load_untracked_git_files(repo_path)
+
     completed = subprocess.run(
         ["git", "-C", str(repo_path), "diff", "--name-status", "--find-renames", clean_base, "--"],
         text=True,
@@ -1846,6 +1849,34 @@ def _load_git_name_status(repo_path: Path, base: str) -> tuple[GitFileChange, ..
         raise ValueError(message)
 
     return tuple(_parse_git_name_status_line(line) for line in completed.stdout.splitlines() if line)
+
+
+def _git_has_head(repo_path: Path) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--verify", "HEAD"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _load_untracked_git_files(repo_path: Path) -> tuple[GitFileChange, ...]:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "ls-files", "--others", "--exclude-standard"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or "git ls-files failed"
+        raise ValueError(message)
+
+    return tuple(
+        GitFileChange(RunFileChangeType.ADDED, line)
+        for line in completed.stdout.splitlines()
+        if line
+    )
 
 
 def _parse_git_name_status_line(line: str) -> GitFileChange:

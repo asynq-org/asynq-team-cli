@@ -1,0 +1,1 @@
+- Let git file audit record untracked files in repositories without an initial commit.
