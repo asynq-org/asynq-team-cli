@@ -16,7 +16,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.38"
+    assert result.output.strip() == "0.1.39"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1048,6 +1048,56 @@ def test_run_task_requests_artifact_approval_when_gated(tmp_path) -> None:
     assert "Approval: APR-0001 -> founder" in result.output
     assert "No runs." in list_result.output
     assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md").exists()
+
+
+def test_worker_run_once_starts_next_task(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Task: TASK-0001  in_progress  First task" in result.output
+    assert "Run: RUN-0001  working  george" in result.output
+    assert "Runner: codex" in result.output
+    assert "Model: gpt-5-codex" in result.output
+    assert "Work packet: .team/runs/george/RUN-0001/work.md" in result.output
+
+
+def test_worker_run_once_reports_empty_queue(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "No available tasks." in result.output
+
+
+def test_worker_start_supports_bounded_iterations(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "worker",
+            "start",
+            "--iterations",
+            "1",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Worker started for agent george." in result.output
+    assert "No available tasks." in result.output
 
 
 def test_run_task_reports_missing_task(tmp_path) -> None:

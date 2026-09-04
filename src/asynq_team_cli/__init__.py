@@ -1,3 +1,3 @@
 """Command-line interface package for Asynq Team."""
 
-__version__ = "0.1.38"
+__version__ = "0.1.39"

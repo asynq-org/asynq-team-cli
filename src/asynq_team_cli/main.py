@@ -1,6 +1,7 @@
 """Typer entrypoint for the Asynq Team CLI."""
 
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -52,6 +53,7 @@ from asynq_team_core.tasks import (
     list_tasks,
     update_task_status,
 )
+from asynq_team_core.worker import WorkerRunOnceResult, run_worker_once
 
 from asynq_team_cli import __version__
 from asynq_team_cli.workspace_context import (
@@ -72,6 +74,7 @@ backup_app = typer.Typer(no_args_is_help=True)
 audit_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
 runner_app = typer.Typer(no_args_is_help=True)
+worker_app = typer.Typer(no_args_is_help=True)
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
@@ -83,6 +86,7 @@ app.add_typer(backup_app, name="backup")
 app.add_typer(audit_app, name="audit")
 app.add_typer(policy_app, name="policy")
 app.add_typer(runner_app, name="runner")
+app.add_typer(worker_app, name="worker")
 
 
 @dataclass(frozen=True)
@@ -767,6 +771,139 @@ def runner_exec_command(
         typer.echo(result.stderr.rstrip(), err=True)
     if result.exit_code != 0:
         raise typer.Exit(result.exit_code)
+
+
+@worker_app.command("run-once")
+def worker_run_once_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    agent_id: Annotated[
+        str,
+        typer.Option("--agent-id", "--agent", help="Agent id for the worker."),
+    ] = "george",
+    requested_model: Annotated[
+        str | None,
+        typer.Option("--model", help="Requested model for new runs."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[
+        str | None,
+        typer.Option("--actor-id", help="Audit actor id. Defaults to the agent id."),
+    ] = None,
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
+) -> None:
+    """Run one local worker scheduling pass."""
+    layout = get_project_layout(_resolve_workspace(workspace))
+    try:
+        result = run_worker_once(
+            database_path=layout.database_path,
+            layout=layout,
+            agent_id=agent_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            approver_id=approver_id,
+            requested_model=requested_model,
+        )
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    _echo_worker_run_once_result(result)
+
+
+@worker_app.command("start")
+def worker_start_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    agent_id: Annotated[
+        str,
+        typer.Option("--agent-id", "--agent", help="Agent id for the worker."),
+    ] = "george",
+    requested_model: Annotated[
+        str | None,
+        typer.Option("--model", help="Requested model for new runs."),
+    ] = None,
+    poll_seconds: Annotated[
+        float,
+        typer.Option("--poll-seconds", min=0.1, help="Delay between worker passes."),
+    ] = 5.0,
+    iterations: Annotated[
+        int | None,
+        typer.Option("--iterations", min=1, help="Stop after this many passes."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[
+        str | None,
+        typer.Option("--actor-id", help="Audit actor id. Defaults to the agent id."),
+    ] = None,
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
+) -> None:
+    """Start a foreground local worker polling loop."""
+    layout = get_project_layout(_resolve_workspace(workspace))
+    typer.echo(f"Worker started for agent {agent_id}.")
+    completed_iterations = 0
+
+    try:
+        while iterations is None or completed_iterations < iterations:
+            result = run_worker_once(
+                database_path=layout.database_path,
+                layout=layout,
+                agent_id=agent_id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                approver_id=approver_id,
+                requested_model=requested_model,
+            )
+            _echo_worker_run_once_result(result)
+            completed_iterations += 1
+            if iterations is not None and completed_iterations >= iterations:
+                break
+            time.sleep(poll_seconds)
+    except KeyboardInterrupt:
+        typer.echo("Worker stopped.")
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _echo_worker_run_once_result(result: WorkerRunOnceResult) -> None:
+    if result.task is None:
+        typer.echo("No available tasks.")
+        return
+
+    typer.echo(f"Task: {result.task.id}  {result.task.status.value}  {result.task.title}")
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    started = result.started
+    if started is None:
+        raise RuntimeError("Worker run-once completed without a run.")
+
+    run = started.work_packet.run
+    typer.echo(f"Run: {run.id}  {run.status.value}  {run.agent_id}")
+    if run.runner_id and run.model:
+        typer.echo(f"Runner: {run.runner_id}")
+        typer.echo(f"Model: {run.model}")
+    typer.echo(f"Artifacts: {run.artifact_dir_path}")
+    typer.echo(f"Work packet: {started.work_packet.artifact.relative_path}")
 
 
 @app.command("inbox")

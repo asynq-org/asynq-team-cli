@@ -1,0 +1,1 @@
+- Add worker commands for starting the next available agent task locally.
