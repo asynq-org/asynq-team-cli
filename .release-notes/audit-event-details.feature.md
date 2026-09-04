@@ -1,0 +1,1 @@
+- Show command and file-change details in `team audit show` output.

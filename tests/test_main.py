@@ -1094,6 +1094,7 @@ def test_run_command_records_command_audit_event(tmp_path) -> None:
     assert "RUN-0001  command  0" in result.output
     assert "Event: EVT-" in result.output
     assert "run.command_executed" in audit_result.output
+    assert "command=poetry run pytest exit_code=0" in audit_result.output
 
 
 def test_run_command_reports_missing_run(tmp_path) -> None:
@@ -1144,6 +1145,7 @@ def test_run_file_records_file_change_audit_event(tmp_path) -> None:
     assert "Path: repos/core/src/example.py" in result.output
     assert "Event: EVT-" in result.output
     assert "run.file_changed" in audit_result.output
+    assert "modified repos/core/src/example.py" in audit_result.output
 
 
 def test_run_file_rejects_path_outside_workspace(tmp_path) -> None:

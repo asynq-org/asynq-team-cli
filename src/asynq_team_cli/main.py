@@ -448,10 +448,14 @@ def audit_show_command(
         return
 
     for event in events:
-        typer.echo(
+        line = (
             f"{event.created_at}  {event.event_type}  "
             f"{event.actor_type}:{event.actor_id}  {event.entity_type}:{event.entity_id}"
         )
+        detail = _format_audit_event_detail(event)
+        if detail:
+            line = f"{line}  {detail}"
+        typer.echo(line)
 
 
 @policy_app.command("check")
@@ -838,6 +842,22 @@ def _echo_pending_capability_approval(authorization) -> bool:
     typer.echo(f"Approval: {approval.id} -> {approval.approver_id}")
     typer.echo(f"Inbox: {inbox_item.id} -> {inbox_item.recipient_id}")
     return True
+
+
+def _format_audit_event_detail(event) -> str | None:
+    if event.event_type == "run.command_executed":
+        command = event.payload.get("command")
+        exit_code = event.payload.get("exit_code")
+        if command is None or exit_code is None:
+            return None
+        return f"command={command} exit_code={exit_code}"
+    if event.event_type == "run.file_changed":
+        path = event.payload.get("path")
+        change_type = event.payload.get("change_type")
+        if path is None or change_type is None:
+            return None
+        return f"{change_type} {path}"
+    return None
 
 
 @task_app.command("list")
