@@ -1,0 +1,1 @@
+- Sync the local Core dependency lock metadata to `0.1.26`.
