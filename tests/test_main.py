@@ -15,7 +15,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.33"
+    assert result.output.strip() == "0.1.34"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -100,6 +100,20 @@ def test_status_reports_initialized_workspace(tmp_path) -> None:
     assert "Config: ok" in result.output
     assert "Database: ok" in result.output
     assert "Project: Asynq Team" in result.output
+
+
+def test_agent_show_prints_runner_model_settings(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["agent", "show", "george", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "ID: george" in result.output
+    assert "Role: engineer" in result.output
+    assert "Runner: codex" in result.output
+    assert "Default model: gpt-5-codex" in result.output
+    assert "Allowed models: gpt-5-codex" in result.output
 
 
 def test_doctor_reports_initialized_workspace_with_warnings(tmp_path) -> None:
@@ -938,6 +952,8 @@ def test_run_create_writes_run_and_artifact_dir(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "RUN-0001  TASK-0001  george  created" in result.output
+    assert "Runner: codex" in result.output
+    assert "Model: gpt-5-codex" in result.output
     assert "Artifacts: .team/runs/george/RUN-0001" in result.output
     assert (tmp_path / ".team" / "runs" / "george" / "RUN-0001").is_dir()
 
@@ -966,11 +982,14 @@ def test_run_task_creates_run_and_work_packet(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "RUN-0001  TASK-0001  george  working" in result.output
+    assert "Model: gpt-5-codex" in result.output
     assert "Artifacts: .team/runs/george/RUN-0001" in result.output
     assert "Work packet: .team/runs/george/RUN-0001/work.md" in result.output
     work_packet = tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md"
     assert work_packet.is_file()
-    assert "First task" in work_packet.read_text(encoding="utf-8")
+    work_packet_body = work_packet.read_text(encoding="utf-8")
+    assert "First task" in work_packet_body
+    assert "- Model: gpt-5-codex" in work_packet_body
 
 
 def test_run_task_requests_artifact_approval_when_gated(tmp_path) -> None:

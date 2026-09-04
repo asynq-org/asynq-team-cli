@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 import yaml
+from asynq_team_core.agent_manifests import load_agent_manifest
 from asynq_team_core.approvals import (
     ApprovalStatus,
     deny_approval,
@@ -56,6 +57,7 @@ from asynq_team_cli import __version__
 
 app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
+agent_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
 approvals_app = typer.Typer(no_args_is_help=False, invoke_without_command=True)
 approval_app = typer.Typer(no_args_is_help=True)
@@ -65,6 +67,7 @@ audit_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
 runner_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
+app.add_typer(agent_app, name="agent")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
 app.add_typer(approval_app, name="approval")
@@ -194,6 +197,42 @@ def status_command(
     config = load_config(layout.config_path)
     typer.echo(f"Project: {config.project.name}")
     typer.echo(f"Storage adapter: {config.storage.adapter}")
+
+
+@agent_app.command("show")
+def agent_show_command(
+    agent_id: Annotated[str, typer.Argument(help="Agent id, such as george.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show an agent manifest summary."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        manifest = load_agent_manifest(layout, agent_id)
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"ID: {manifest.id}")
+    typer.echo(f"Display name: {manifest.display_name}")
+    typer.echo(f"Role: {manifest.role}")
+    if manifest.supervisor:
+        typer.echo(f"Supervisor: {manifest.supervisor}")
+    typer.echo(f"Runner: {manifest.runner.default}")
+    typer.echo(f"Default model: {manifest.runner.default_model}")
+    typer.echo(f"Allowed models: {', '.join(sorted(manifest.runner.allowed_models))}")
+    typer.echo(f"Can request model change: {manifest.runner.can_request_model_change}")
+    if manifest.runner.max_run_budget_usd is not None:
+        typer.echo(f"Max run budget USD: {manifest.runner.max_run_budget_usd:g}")
 
 
 @app.command("doctor")
@@ -1179,6 +1218,10 @@ def run_create_command(
             resolve_path=True,
         ),
     ] = None,
+    requested_model: Annotated[
+        str | None,
+        typer.Option("--model", help="Requested model for this run."),
+    ] = None,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
 ) -> None:
@@ -1192,8 +1235,9 @@ def run_create_command(
             agent_id=agent_id,
             actor_type=actor_type,
             actor_id=actor_id,
+            requested_model=requested_model,
         )
-    except ValueError as exc:
+    except (PermissionError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -1201,6 +1245,9 @@ def run_create_command(
         f"{created.run.id}  {created.run.task_id}  {created.run.agent_id}  "
         f"{created.run.status.value}"
     )
+    if created.run.runner_id and created.run.model:
+        typer.echo(f"Runner: {created.run.runner_id}")
+        typer.echo(f"Model: {created.run.model}")
     typer.echo(f"Artifacts: {created.run.artifact_dir_path}")
 
 
@@ -1222,6 +1269,10 @@ def run_task_command(
             resolve_path=True,
         ),
     ] = None,
+    requested_model: Annotated[
+        str | None,
+        typer.Option("--model", help="Requested model for this run."),
+    ] = None,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[
         str | None,
@@ -1241,6 +1292,7 @@ def run_task_command(
             actor_type=actor_type,
             actor_id=effective_actor_id,
             approver_id=approver_id,
+            requested_model=requested_model,
         )
     except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
@@ -1254,6 +1306,9 @@ def run_task_command(
         raise RuntimeError("Authorized task run start completed without a run.")
     run = started.work_packet.run
     typer.echo(f"{run.id}  {run.task_id}  {run.agent_id}  {run.status.value}")
+    if run.runner_id and run.model:
+        typer.echo(f"Runner: {run.runner_id}")
+        typer.echo(f"Model: {run.model}")
     typer.echo(f"Artifacts: {run.artifact_dir_path}")
     typer.echo(f"Work packet: {started.work_packet.artifact.relative_path}")
 
@@ -1366,6 +1421,12 @@ def run_show_command(
     typer.echo(f"Task: {run.task_id}")
     typer.echo(f"Agent: {run.agent_id}")
     typer.echo(f"Status: {run.status.value}")
+    if run.runner_id:
+        typer.echo(f"Runner: {run.runner_id}")
+    if run.model:
+        typer.echo(f"Model: {run.model}")
+    if run.requested_model:
+        typer.echo(f"Requested model: {run.requested_model}")
     if run.artifact_dir_path:
         typer.echo(f"Artifacts: {run.artifact_dir_path}")
 

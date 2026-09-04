@@ -75,6 +75,7 @@ poetry run team policy authorize george main.merge "Merge reviewed changes." \
   --subject-type run \
   --subject-id RUN-0001 \
   --workspace /path/to/workspace
+poetry run team agent show george --workspace /path/to/workspace
 poetry run team runner check shell.test --workspace /path/to/workspace
 poetry run team runner exec RUN-0001 shell.test --workspace /path/to/workspace -- poetry run pytest
 ```
@@ -113,10 +114,12 @@ Create and inspect agent runs:
 ```bash
 poetry run team run task TASK-0001 \
   --agent-id george \
+  --model gpt-5-codex \
   --workspace /path/to/workspace
 
 poetry run team run create TASK-0001 \
   --agent-id george \
+  --model gpt-5-codex \
   --workspace /path/to/workspace
 
 poetry run team run list --workspace /path/to/workspace
