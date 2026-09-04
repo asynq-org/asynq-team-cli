@@ -1,0 +1,1 @@
+- Add init options for git artifact backup settings and remote metadata.

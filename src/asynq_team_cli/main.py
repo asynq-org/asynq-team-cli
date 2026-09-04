@@ -118,6 +118,14 @@ def init_command(
         str,
         typer.Option("--project-name", help="Project name written to .team/config.yaml."),
     ] = "Asynq Team",
+    git_backup: Annotated[
+        bool,
+        typer.Option("--git-backup/--no-git-backup", help="Enable git artifact backup config."),
+    ] = True,
+    git_remote: Annotated[
+        str,
+        typer.Option("--git-remote", help="Git remote used for artifact backup."),
+    ] = "",
     overwrite_config: Annotated[
         bool,
         typer.Option("--overwrite-config", help="Replace an existing .team/config.yaml."),
@@ -135,6 +143,8 @@ def init_command(
     initialization = initialize_project(
         target_workspace,
         project_name=project_name,
+        git_enabled=git_backup,
+        git_remote=git_remote,
         overwrite_config=overwrite_config,
         overwrite_defaults=overwrite_defaults,
     )
@@ -143,6 +153,9 @@ def init_command(
     typer.echo(f"Initialized Asynq Team in {initialization.layout.team_dir}")
     if initialization.created_config:
         typer.echo(f"Created config: {initialization.layout.config_path}")
+        typer.echo(f"Git backup: {'enabled' if git_backup else 'disabled'}")
+        if git_remote:
+            typer.echo(f"Git remote: {git_remote.strip()}")
     else:
         typer.echo(f"Kept existing config: {initialization.layout.config_path}")
     if initialization.created_default_files:

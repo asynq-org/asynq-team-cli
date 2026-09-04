@@ -15,7 +15,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.31"
+    assert result.output.strip() == "0.1.32"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -41,6 +41,27 @@ def test_init_preserves_existing_config(tmp_path) -> None:
     assert result.exit_code == 0
     assert config_path.read_text(encoding="utf-8") == "project:\n  name: Existing\n"
     assert "Kept existing config" in result.output
+
+
+def test_init_writes_git_backup_config(tmp_path) -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "init",
+            "--workspace",
+            str(tmp_path),
+            "--no-git-backup",
+            "--git-remote",
+            "git@github.com:example/team-state.git",
+        ],
+    )
+    config = yaml.safe_load((tmp_path / ".team" / "config.yaml").read_text(encoding="utf-8"))
+
+    assert result.exit_code == 0
+    assert config["git"]["enabled"] is False
+    assert config["git"]["remote"] == "git@github.com:example/team-state.git"
+    assert "Git backup: disabled" in result.output
+    assert "Git remote: git@github.com:example/team-state.git" in result.output
 
 
 def test_init_preserves_existing_default_files(tmp_path) -> None:

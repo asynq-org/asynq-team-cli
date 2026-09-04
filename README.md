@@ -43,6 +43,15 @@ Initialize a workspace:
 poetry run team init --workspace /path/to/workspace --project-name "Example Team"
 ```
 
+Configure git artifact backup metadata at init time when the workspace should point at a
+state remote:
+
+```bash
+poetry run team init --workspace /path/to/workspace \
+  --project-name "Example Team" \
+  --git-remote git@github.com:example/team-state.git
+```
+
 This creates local runtime state under `.team/`, including:
 
 - `.team/config.yaml`;
