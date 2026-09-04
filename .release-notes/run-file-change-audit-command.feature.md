@@ -1,0 +1,1 @@
+- Add `team run file` to record workspace-relative file-change metadata in the run audit trail.

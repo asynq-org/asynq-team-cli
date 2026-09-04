@@ -116,6 +116,11 @@ poetry run team run command RUN-0001 "poetry run pytest" \
   --exit-code 0 \
   --cwd repos/core \
   --workspace /path/to/workspace
+poetry run team run file RUN-0001 repos/core/src/example.py \
+  --change modified \
+  --additions 12 \
+  --deletions 3 \
+  --workspace /path/to/workspace
 poetry run team run submit RUN-0001 "Implemented the first pass." \
   --checks "- poetry run pytest" \
   --workspace /path/to/workspace

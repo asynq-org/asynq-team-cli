@@ -23,6 +23,7 @@ from asynq_team_core.paths import get_project_layout
 from asynq_team_core.policy import authorize_agent_capability, evaluate_agent_capability
 from asynq_team_core.project import initialize_project
 from asynq_team_core.run_commands import record_run_command
+from asynq_team_core.run_files import RunFileChangeType, record_run_file_change
 from asynq_team_core.run_review import RunReviewDecision, review_authorized_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
@@ -1371,6 +1372,64 @@ def run_command_record_command(
     typer.echo(f"Event: {record.event.id}")
 
 
+@run_app.command("file")
+def run_file_record_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    path: Annotated[str, typer.Argument(help="Workspace-relative file path.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    change: Annotated[
+        str,
+        typer.Option("--change", help="added, modified, deleted, or renamed."),
+    ] = "modified",
+    additions: Annotated[
+        int | None,
+        typer.Option("--additions", help="Added line count."),
+    ] = None,
+    deletions: Annotated[
+        int | None,
+        typer.Option("--deletions", help="Deleted line count."),
+    ] = None,
+    previous_path: Annotated[
+        str | None,
+        typer.Option("--previous-path", help="Previous path for renamed files."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Record file-change metadata for a run."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        record = record_run_file_change(
+            database_path=layout.database_path,
+            layout=layout,
+            run_id=run_id,
+            relative_path=path,
+            change_type=_parse_run_file_change_type(change),
+            additions=additions,
+            deletions=deletions,
+            previous_path=previous_path,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{record.run.id}  file  {record.event.payload['change_type']}")
+    typer.echo(f"Path: {record.event.payload['path']}")
+    typer.echo(f"Event: {record.event.id}")
+
+
 @run_app.command("submit")
 def run_submit_command(
     run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
@@ -1443,6 +1502,13 @@ def _parse_approval_status(value: str) -> ApprovalStatus | None:
         return ApprovalStatus(value)
     except ValueError as exc:
         raise typer.BadParameter("status must be pending, granted, denied, or all") from exc
+
+
+def _parse_run_file_change_type(value: str) -> RunFileChangeType:
+    try:
+        return RunFileChangeType(value)
+    except ValueError as exc:
+        raise typer.BadParameter("change must be added, modified, deleted, or renamed") from exc
 
 
 def _parse_inbox_status(value: str) -> InboxItemStatus | None:

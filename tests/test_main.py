@@ -1116,6 +1116,56 @@ def test_run_command_reports_missing_run(tmp_path) -> None:
     assert "Run not found: RUN-9999" in result.output
 
 
+def test_run_file_records_file_change_audit_event(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "file",
+            "RUN-0001",
+            "repos/core/src/example.py",
+            "--change",
+            "modified",
+            "--additions",
+            "12",
+            "--deletions",
+            "3",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    audit_result = runner.invoke(app, ["audit", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "RUN-0001  file  modified" in result.output
+    assert "Path: repos/core/src/example.py" in result.output
+    assert "Event: EVT-" in result.output
+    assert "run.file_changed" in audit_result.output
+
+
+def test_run_file_rejects_path_outside_workspace(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "file",
+            "RUN-0001",
+            "../outside.py",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "relative_path escapes the workspace" in result.output
+
+
 def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:
     runner = CliRunner()
     _create_cli_run(runner, tmp_path)
