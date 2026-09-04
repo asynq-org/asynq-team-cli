@@ -1,0 +1,1 @@
+- Refocus README on founder workflow and move low-level CLI primitives into agent docs.

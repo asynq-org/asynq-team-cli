@@ -2,22 +2,20 @@
 
 `asynq-team-cli` is the terminal interface for local-first Asynq Team workspaces.
 
-Asynq Team is a local-first operating layer for working with AI agents as a small software team. It turns agent work into explicit tasks, reviewable artifacts, approval records, and audit trails instead of leaving important decisions buried in chat history.
+Asynq Team is a local-first operating layer for working with AI agents as a small
+software team. It turns agent work into explicit tasks, reviewable artifacts, approval
+records, and audit trails instead of leaving important decisions buried in chat history.
 
 The CLI is useful when you want:
 
-- a project-local task ledger for agent and human work;
-- repeatable workspace initialization under `.team/`;
-- Markdown artifacts that are easy to inspect and review in git;
+- a simple task queue for founder-to-agent work;
+- project-local agents, rules, permissions, and model settings under `.team/`;
 - a local SQLite runtime instead of a hosted service requirement;
 - a clear inbox for questions, blockers, and approvals;
-- explicit approve/deny commands for sensitive actions.
+- reviewable Markdown artifacts and audit trails.
 
-It helps initialize a `.team/` workspace, create tasks, inspect runtime config, and handle the MVP human attention loop through inbox and approval commands.
-It also starts local agent runs so each agent attempt has a status, artifact directory, and prepared work packet that can be reviewed later, with policy approvals enforced before agent-written run artifacts are created.
-Approving or returning a reviewed run also moves the parent task to `approved` or `returned`, so the task ledger stays aligned with run review outcomes.
-
-The CLI is early and pre-1.0. Command names and output may change while the MVP is still taking shape.
+The CLI is early and pre-1.0. Command names and output may change while the MVP is still
+taking shape.
 
 ## Install From Source
 
@@ -36,141 +34,55 @@ Run the CLI through Poetry:
 poetry run team --help
 ```
 
-## Quick Start
+## Founder Flow
 
-Initialize a workspace:
-
-```bash
-poetry run team init --workspace /path/to/workspace --project-name "Example Team"
-```
-
-Set that workspace as your default CLI context:
+Create or enter an empty workspace, then initialize and customize it:
 
 ```bash
+poetry run team onboard --workspace /path/to/workspace
 poetry run team workspace use /path/to/workspace
-poetry run team workspace current
+poetry run team doctor
 ```
 
-After a context is set, commands can omit `--workspace`. Passing `--workspace` still
-overrides the saved context for that command.
-
-Configure git artifact backup metadata at init time when the workspace should point at a
-state remote:
+Create work for the team:
 
 ```bash
-poetry run team init --workspace /path/to/workspace \
-  --project-name "Example Team" \
-  --git-remote git@github.com:example/team-state.git
+poetry run team task create "Prepare the first landing page" \
+  --brief "Create a small, reviewable first pass with tests."
 ```
 
-This creates local runtime state under `.team/`, including:
-
-- `.team/config.yaml`;
-- `.team/team.db`;
-- default agent manifests;
-- default rule files;
-- default policy files.
-
-Inspect the workspace:
+Start the local worker loop:
 
 ```bash
-poetry run team status --workspace /path/to/workspace
-poetry run team doctor --workspace /path/to/workspace
-poetry run team config show --workspace /path/to/workspace
-poetry run team backup run --workspace /path/to/workspace
-poetry run team backup list --workspace /path/to/workspace
-poetry run team audit show TASK-0001 --workspace /path/to/workspace
-poetry run team policy check george main.merge --workspace /path/to/workspace
-poetry run team policy authorize george main.merge "Merge reviewed changes." \
-  --subject-type run \
-  --subject-id RUN-0001 \
-  --workspace /path/to/workspace
-poetry run team agent show george --workspace /path/to/workspace
-poetry run team runner check shell.test --workspace /path/to/workspace
-poetry run -- team runner exec RUN-0001 shell.test --workspace /path/to/workspace -- poetry run pytest
+poetry run team worker start
 ```
 
-Use `poetry run -- team ...` for `runner exec` commands. The first `--` stops Poetry
-from parsing runner options before the second `--` passes the command argv to Asynq Team.
-
-Create and list tasks:
+For smoke tests or manual demos, use one bounded worker pass:
 
 ```bash
-poetry run team task create "Review onboarding" \
-  --brief "Check first-run setup and list blockers." \
-  --workspace /path/to/workspace
-
-poetry run team task create "Capture follow-up" \
-  --actor-type agent \
-  --actor-id george \
-  --workspace /path/to/workspace
-
-poetry run team task follow-up TASK-0001 "Document review checklist" \
-  --brief "Capture the checklist as a future scoped improvement." \
-  --workspace /path/to/workspace
-
-poetry run team task list --workspace /path/to/workspace
-poetry run team task show TASK-0001 --workspace /path/to/workspace
-poetry run team task status TASK-0001 in_progress --workspace /path/to/workspace
-poetry run team task comment TASK-0001 "Please review this." \
-  --mention supervisor \
-  --workspace /path/to/workspace
-poetry run team task comment TASK-0001 "I found a follow-up." \
-  --actor-type agent \
-  --actor-id george \
-  --workspace /path/to/workspace
-poetry run team task comments TASK-0001 --workspace /path/to/workspace
+poetry run team worker run-once
 ```
 
-Create and inspect agent runs:
+Review human attention items:
 
 ```bash
-poetry run team run task TASK-0001 \
-  --agent-id george \
-  --model gpt-5-codex \
-  --workspace /path/to/workspace
-
-poetry run team run create TASK-0001 \
-  --agent-id george \
-  --model gpt-5-codex \
-  --workspace /path/to/workspace
-
-poetry run team run list --workspace /path/to/workspace
-poetry run team run next --agent george --workspace /path/to/workspace
-poetry run team run show RUN-0001 --workspace /path/to/workspace
-poetry run team run status RUN-0001 planning --workspace /path/to/workspace
-poetry run team run work RUN-0001 --workspace /path/to/workspace
-poetry run team run command RUN-0001 "poetry run pytest" \
-  --exit-code 0 \
-  --cwd repos/core \
-  --workspace /path/to/workspace
-poetry run team run file RUN-0001 repos/core/src/example.py \
-  --change modified \
-  --additions 12 \
-  --deletions 3 \
-  --workspace /path/to/workspace
-poetry run team run audit-git RUN-0001 \
-  --repo repos/core \
-  --workspace /path/to/workspace
-poetry run team run submit RUN-0001 "Implemented the first pass." \
-  --checks "- poetry run pytest" \
-  --workspace /path/to/workspace
-
-poetry run team review RUN-0001 approve "Looks ready." \
-  --workspace /path/to/workspace
+poetry run team inbox
+poetry run team approve APR-0001
+poetry run team deny APR-0002
+poetry run team status
 ```
 
-Review inbox items and approvals:
+`team onboard` creates local runtime state under `.team/`, including config, SQLite
+state, default agents, default rules, default policy files, and `.gitignore` entries for
+local runtime databases. It can also set the default model and display names for the
+generated agents.
 
-```bash
-poetry run team inbox --workspace /path/to/workspace
-poetry run team approvals --workspace /path/to/workspace
-poetry run team approval show APR-0001 --workspace /path/to/workspace
-poetry run team approvals approve APR-0001 --workspace /path/to/workspace
-poetry run team approvals deny APR-0002 --workspace /path/to/workspace
-poetry run team approve APR-0001 --workspace /path/to/workspace
-poetry run team deny APR-0002 --workspace /path/to/workspace
-```
+Passing `--workspace` always overrides the saved workspace context for that command.
+
+## Agent CLI Primitives
+
+Agents and maintainers that need lower-level task, run, audit, policy, or runner commands
+should use [docs/agent-cli-primitives.md](/Users/asynqroot/Work/asynq-team/repos/cli/docs/agent-cli-primitives.md).
 
 ## Development
 
@@ -184,4 +96,5 @@ poetry run pytest
 poetry run pip-audit
 ```
 
-Before committing package-relevant changes, update `project.version` and add a release-note fragment under `.release-notes/`.
+Before committing package-relevant changes, update `project.version` and add a
+release-note fragment under `.release-notes/`.
