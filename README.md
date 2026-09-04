@@ -123,6 +123,9 @@ poetry run team run file RUN-0001 repos/core/src/example.py \
   --additions 12 \
   --deletions 3 \
   --workspace /path/to/workspace
+poetry run team run audit-git RUN-0001 \
+  --repo repos/core \
+  --workspace /path/to/workspace
 poetry run team run submit RUN-0001 "Implemented the first pass." \
   --checks "- poetry run pytest" \
   --workspace /path/to/workspace

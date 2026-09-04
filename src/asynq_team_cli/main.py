@@ -1,5 +1,7 @@
 """Typer entrypoint for the Asynq Team CLI."""
 
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -71,6 +73,15 @@ app.add_typer(backup_app, name="backup")
 app.add_typer(audit_app, name="audit")
 app.add_typer(policy_app, name="policy")
 app.add_typer(runner_app, name="runner")
+
+
+@dataclass(frozen=True)
+class GitFileChange:
+    """Parsed git name-status file change."""
+
+    change_type: RunFileChangeType
+    path: str
+    previous_path: str | None = None
 
 
 def print_version(value: bool) -> None:
@@ -1540,6 +1551,62 @@ def run_file_record_command(
     typer.echo(f"Event: {record.event.id}")
 
 
+@run_app.command("audit-git")
+def run_audit_git_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    repo: Annotated[
+        str,
+        typer.Option("--repo", help="Workspace-relative git repository path."),
+    ] = ".",
+    base: Annotated[str, typer.Option("--base", help="Git base ref for diff.")] = "HEAD",
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Record file-change audit events from a git diff."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        repo_path = _resolve_workspace_child(layout.workspace, repo, "repo")
+        changes = _load_git_name_status(repo_path, base)
+        records = [
+            record_run_file_change(
+                database_path=layout.database_path,
+                layout=layout,
+                run_id=run_id,
+                relative_path=_workspace_relative_git_path(layout.workspace, repo_path, change.path),
+                previous_path=(
+                    _workspace_relative_git_path(layout.workspace, repo_path, change.previous_path)
+                    if change.previous_path
+                    else None
+                ),
+                change_type=change.change_type,
+                actor_type=actor_type,
+                actor_id=actor_id,
+            )
+            for change in changes
+        ]
+    except (subprocess.SubprocessError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Recorded {len(records)} file change(s).")
+    for record in records:
+        typer.echo(
+            f"{record.event.payload['change_type']}  {record.event.payload['path']}  "
+            f"{record.event.id}"
+        )
+
+
 @run_app.command("submit")
 def run_submit_command(
     run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
@@ -1619,6 +1686,69 @@ def _parse_run_file_change_type(value: str) -> RunFileChangeType:
         return RunFileChangeType(value)
     except ValueError as exc:
         raise typer.BadParameter("change must be added, modified, deleted, or renamed") from exc
+
+
+def _load_git_name_status(repo_path: Path, base: str) -> tuple[GitFileChange, ...]:
+    clean_base = _require_non_empty(base, "base")
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "diff", "--name-status", "--find-renames", clean_base, "--"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or f"git diff failed with exit code {completed.returncode}"
+        raise ValueError(message)
+
+    return tuple(_parse_git_name_status_line(line) for line in completed.stdout.splitlines() if line)
+
+
+def _parse_git_name_status_line(line: str) -> GitFileChange:
+    parts = line.split("\t")
+    status = parts[0]
+    if status == "A" and len(parts) == 2:
+        return GitFileChange(RunFileChangeType.ADDED, parts[1])
+    if status == "M" and len(parts) == 2:
+        return GitFileChange(RunFileChangeType.MODIFIED, parts[1])
+    if status == "D" and len(parts) == 2:
+        return GitFileChange(RunFileChangeType.DELETED, parts[1])
+    if status.startswith("R") and len(parts) == 3:
+        return GitFileChange(RunFileChangeType.RENAMED, parts[2], previous_path=parts[1])
+    raise ValueError(f"Unsupported git file status line: {line}")
+
+
+def _workspace_relative_git_path(workspace: Path, repo_path: Path, git_path: str) -> str:
+    clean_git_path = _require_non_empty(git_path, "git_path")
+    path = Path(clean_git_path)
+    if path.is_absolute():
+        raise ValueError("git_path must be relative.")
+
+    resolved = (repo_path / path).resolve(strict=False)
+    try:
+        return resolved.relative_to(workspace.resolve(strict=False)).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"git_path escapes the workspace: {git_path}") from exc
+
+
+def _resolve_workspace_child(workspace: Path, value: str, field_name: str) -> Path:
+    clean_value = _require_non_empty(value, field_name)
+    path = Path(clean_value)
+    resolved = (
+        path.resolve(strict=False)
+        if path.is_absolute()
+        else (workspace / path).resolve(strict=False)
+    )
+    try:
+        resolved.relative_to(workspace.resolve(strict=False))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} escapes the workspace: {value}") from exc
+    return resolved
+
+
+def _require_non_empty(value: str, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string.")
+    return value.strip()
 
 
 def _parse_inbox_status(value: str) -> InboxItemStatus | None:

@@ -1,4 +1,6 @@
+import subprocess
 import sys
+from pathlib import Path
 
 import yaml
 from asynq_team_core.approvals import request_approval
@@ -13,7 +15,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.29"
+    assert result.output.strip() == "0.1.30"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1274,6 +1276,41 @@ def test_run_file_rejects_path_outside_workspace(tmp_path) -> None:
     assert "relative_path escapes the workspace" in result.output
 
 
+def test_run_audit_git_records_git_diff_file_changes(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    repo = tmp_path / "repos" / "core"
+    source = repo / "src" / "example.py"
+    source.parent.mkdir(parents=True)
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "founder@example.local")
+    _run_git(repo, "config", "user.name", "Founder")
+    source.write_text("print('before')\n", encoding="utf-8")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "Initial")
+    source.write_text("print('after')\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "audit-git",
+            "RUN-0001",
+            "--repo",
+            "repos/core",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    audit_result = runner.invoke(app, ["audit", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Recorded 1 file change(s)." in result.output
+    assert "modified  repos/core/src/example.py" in result.output
+    assert "run.file_changed" in audit_result.output
+    assert "modified repos/core/src/example.py" in audit_result.output
+
+
 def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:
     runner = CliRunner()
     _create_cli_run(runner, tmp_path)
@@ -1595,3 +1632,7 @@ def _replace_role_capability_policy(workspace, role: str, capability: str, targe
         role_policy[field] = [item for item in role_policy.get(field, []) if item != capability]
     role_policy.setdefault(target, []).append(capability)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _run_git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
