@@ -29,6 +29,7 @@ from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
 from asynq_team_core.run_task import start_authorized_task_run
 from asynq_team_core.run_work import prepare_authorized_run_work_packet
+from asynq_team_core.runner_execution import execute_run_command
 from asynq_team_core.runner_policy import evaluate_runner_tool
 from asynq_team_core.runs import (
     RunStatus,
@@ -577,6 +578,63 @@ def runner_check_command(
     typer.echo(f"Reason: {evaluation.reason}")
 
 
+@runner_app.command("exec")
+def runner_exec_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    tool: Annotated[str, typer.Argument(help="Runner tool id, such as shell.test.")],
+    command: Annotated[list[str], typer.Argument(help="Command argv to execute.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    cwd: Annotated[
+        str | None,
+        typer.Option("--cwd", help="Workspace-relative working directory."),
+    ] = None,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", min=1, help="Command timeout in seconds."),
+    ] = 300,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Execute a local command through runner policy."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        result = execute_run_command(
+            database_path=layout.database_path,
+            layout=layout,
+            run_id=run_id,
+            tool=tool,
+            command=tuple(command),
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{result.record.run.id}  {tool}  exit_code={result.exit_code}")
+    typer.echo(f"Event: {result.record.event.id}")
+    if result.stdout:
+        typer.echo("Stdout:")
+        typer.echo(result.stdout.rstrip())
+    if result.stderr:
+        typer.echo("Stderr:")
+        typer.echo(result.stderr.rstrip(), err=True)
+    if result.exit_code != 0:
+        raise typer.Exit(result.exit_code)
+
+
 @app.command("inbox")
 def inbox_command(
     workspace: Annotated[
@@ -880,7 +938,9 @@ def _format_audit_event_detail(event) -> str | None:
         exit_code = event.payload.get("exit_code")
         if command is None or exit_code is None:
             return None
-        return f"command={command} exit_code={exit_code}"
+        tool = event.payload.get("tool")
+        tool_detail = f" tool={tool}" if tool else ""
+        return f"command={command} exit_code={exit_code}{tool_detail}"
     if event.event_type == "run.file_changed":
         path = event.payload.get("path")
         change_type = event.payload.get("change_type")

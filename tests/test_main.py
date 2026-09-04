@@ -1,3 +1,5 @@
+import sys
+
 import yaml
 from asynq_team_core.approvals import request_approval
 from asynq_team_core.database import connect_database
@@ -11,7 +13,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.21"
+    assert result.output.strip() == "0.1.29"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -320,6 +322,82 @@ def test_runner_check_denies_default_denied_tool(tmp_path) -> None:
     assert result.exit_code == 0
     assert "shell.destructive  deny" in result.output
     assert "Runner tool is denied: shell.destructive" in result.output
+
+
+def test_runner_exec_runs_allowed_command_and_records_audit(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "runner",
+            "exec",
+            "RUN-0001",
+            "shell.test",
+            "--workspace",
+            str(tmp_path),
+            "--",
+            sys.executable,
+            "-c",
+            "print('ok')",
+        ],
+    )
+    audit_result = runner.invoke(app, ["audit", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "RUN-0001  shell.test  exit_code=0" in result.output
+    assert "Stdout:\nok" in result.output
+    assert "run.command_executed" in audit_result.output
+    assert "tool=shell.test" in audit_result.output
+
+
+def test_runner_exec_rejects_denied_tool(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "runner",
+            "exec",
+            "RUN-0001",
+            "shell.destructive",
+            "--workspace",
+            str(tmp_path),
+            "--",
+            sys.executable,
+            "-c",
+            "print('unsafe')",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Runner tool is denied: shell.destructive" in result.output
+
+
+def test_runner_exec_returns_command_exit_code(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "runner",
+            "exec",
+            "RUN-0001",
+            "shell.test",
+            "--workspace",
+            str(tmp_path),
+            "--",
+            sys.executable,
+            "-c",
+            "raise SystemExit(3)",
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "RUN-0001  shell.test  exit_code=3" in result.output
 
 
 def test_inbox_lists_attention_items(tmp_path) -> None:

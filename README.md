@@ -66,6 +66,7 @@ poetry run team policy authorize george main.merge "Merge reviewed changes." \
   --subject-id RUN-0001 \
   --workspace /path/to/workspace
 poetry run team runner check shell.test --workspace /path/to/workspace
+poetry run team runner exec RUN-0001 shell.test --workspace /path/to/workspace -- poetry run pytest
 ```
 
 Create and list tasks:

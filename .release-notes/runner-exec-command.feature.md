@@ -1,0 +1,1 @@
+- Add `team runner exec` to execute allowed local commands through runner policy with audit records.
