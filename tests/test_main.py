@@ -294,6 +294,34 @@ def test_policy_authorize_rejects_denied_capability(tmp_path) -> None:
     assert "Capability is denied for role: supervisor" in result.output
 
 
+def test_runner_check_allows_default_tool(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["runner", "check", "shell.test", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "shell.test  allow" in result.output
+    assert "Runner tool is allowed: shell.test" in result.output
+
+
+def test_runner_check_denies_default_denied_tool(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["runner", "check", "shell.destructive", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "shell.destructive  deny" in result.output
+    assert "Runner tool is denied: shell.destructive" in result.output
+
+
 def test_inbox_lists_attention_items(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0

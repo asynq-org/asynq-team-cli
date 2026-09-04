@@ -29,6 +29,7 @@ from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
 from asynq_team_core.run_task import start_authorized_task_run
 from asynq_team_core.run_work import prepare_authorized_run_work_packet
+from asynq_team_core.runner_policy import evaluate_runner_tool
 from asynq_team_core.runs import (
     RunStatus,
     get_next_agent_run,
@@ -59,6 +60,7 @@ run_app = typer.Typer(no_args_is_help=True)
 backup_app = typer.Typer(no_args_is_help=True)
 audit_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
+runner_app = typer.Typer(no_args_is_help=True)
 app.add_typer(task_app, name="task")
 app.add_typer(config_app, name="config")
 app.add_typer(approvals_app, name="approvals")
@@ -67,6 +69,7 @@ app.add_typer(run_app, name="run")
 app.add_typer(backup_app, name="backup")
 app.add_typer(audit_app, name="audit")
 app.add_typer(policy_app, name="policy")
+app.add_typer(runner_app, name="runner")
 
 
 def print_version(value: bool) -> None:
@@ -545,6 +548,33 @@ def policy_authorize_command(
     inbox_item = authorization.approval_request.inbox_item
     typer.echo(f"Approval: {approval.id} -> {approval.approver_id}")
     typer.echo(f"Inbox: {inbox_item.id} -> {inbox_item.recipient_id}")
+
+
+@runner_app.command("check")
+def runner_check_command(
+    tool: Annotated[str, typer.Argument(help="Runner tool id, such as shell.test.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Check whether a runner tool is allowed."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        evaluation = evaluate_runner_tool(layout, tool)
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{evaluation.tool}  {evaluation.decision.value}")
+    typer.echo(f"Reason: {evaluation.reason}")
 
 
 @app.command("inbox")
