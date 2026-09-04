@@ -11,7 +11,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.18"
+    assert result.output.strip() == "0.1.19"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -459,7 +459,7 @@ def test_task_create_writes_task_and_brief(tmp_path) -> None:
 def test_task_create_agent_requests_approval_when_gated(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
-    _replace_engineer_task_create_policy(tmp_path, "require_approval")
+    _replace_engineer_capability_policy(tmp_path, "task.create", "require_approval")
 
     result = runner.invoke(
         app,
@@ -487,7 +487,7 @@ def test_task_create_agent_requests_approval_when_gated(tmp_path) -> None:
 def test_task_create_agent_rejects_denied_capability(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
-    _replace_engineer_task_create_policy(tmp_path, "deny")
+    _replace_engineer_capability_policy(tmp_path, "task.create", "deny")
 
     result = runner.invoke(
         app,
@@ -556,7 +556,7 @@ def test_task_follow_up_requests_approval_when_gated(tmp_path) -> None:
         .exit_code
         == 0
     )
-    _replace_engineer_task_create_policy(tmp_path, "require_approval")
+    _replace_engineer_capability_policy(tmp_path, "task.create", "require_approval")
 
     result = runner.invoke(
         app,
@@ -689,6 +689,70 @@ def test_task_comment_creates_comment_and_mentions(tmp_path) -> None:
     assert "Mentions: 1" in result.output
     assert "INBOX-0001" in inbox_result.output
     assert "mention" in inbox_result.output
+
+
+def test_task_comment_agent_requests_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    _replace_engineer_capability_policy(tmp_path, "comment.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "comment",
+            "TASK-0001",
+            "Please review this.",
+            "--workspace",
+            str(tmp_path),
+            "--actor-type",
+            "agent",
+            "--actor-id",
+            "george",
+        ],
+    )
+    comments_result = runner.invoke(app, ["task", "comments", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  comment.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Inbox: INBOX-0001 -> founder" in result.output
+    assert comments_result.output.strip() == "No comments."
+
+
+def test_task_comment_agent_rejects_denied_capability(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    _replace_engineer_capability_policy(tmp_path, "comment.create", "deny")
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "comment",
+            "TASK-0001",
+            "Please review this.",
+            "--workspace",
+            str(tmp_path),
+            "--actor-type",
+            "agent",
+            "--actor-id",
+            "george",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Capability is denied for role: engineer" in result.output
 
 
 def test_task_comments_lists_task_comments(tmp_path) -> None:
@@ -1092,11 +1156,11 @@ def _create_cli_run(runner: CliRunner, workspace) -> None:
     )
 
 
-def _replace_engineer_task_create_policy(workspace, target: str) -> None:
+def _replace_engineer_capability_policy(workspace, capability: str, target: str) -> None:
     path = workspace / ".team" / "policy" / "capabilities.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     engineer = data["roles"]["engineer"]
     for field in ("allow", "require_approval", "deny"):
-        engineer[field] = [item for item in engineer.get(field, []) if item != "task.create"]
-    engineer.setdefault(target, []).append("task.create")
+        engineer[field] = [item for item in engineer.get(field, []) if item != capability]
+    engineer.setdefault(target, []).append(capability)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")

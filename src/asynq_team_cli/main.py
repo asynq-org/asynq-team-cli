@@ -14,7 +14,7 @@ from asynq_team_core.approvals import (
 )
 from asynq_team_core.audit import list_task_audit_events
 from asynq_team_core.backups import create_database_backup, list_database_backups
-from asynq_team_core.comments import create_task_comment, list_task_comments
+from asynq_team_core.comments import create_authorized_task_comment, list_task_comments
 from asynq_team_core.config import load_config
 from asynq_team_core.database import connect_database, initialize_database
 from asynq_team_core.doctor import run_doctor
@@ -741,7 +741,7 @@ def task_create_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    if _echo_pending_task_approval(result.authorization):
+    if _echo_pending_capability_approval(result.authorization):
         return
 
     created = result.created
@@ -798,7 +798,7 @@ def task_follow_up_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    if _echo_pending_task_approval(result.authorization):
+    if _echo_pending_capability_approval(result.authorization):
         return
 
     created = result.created
@@ -809,7 +809,7 @@ def task_follow_up_command(
     typer.echo(f"Brief: {created.brief.relative_path}")
 
 
-def _echo_pending_task_approval(authorization) -> bool:
+def _echo_pending_capability_approval(authorization) -> bool:
     if authorization is None or authorization.approval_request is None:
         return False
 
@@ -950,20 +950,33 @@ def task_comment_command(
         list[str] | None,
         typer.Option("--mention", help="Recipient id to mention. Can be used multiple times."),
     ] = None,
-    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Add a comment to a task."""
     layout = get_project_layout(workspace or Path.cwd())
-    with connect_database(layout.database_path) as connection:
-        created = create_task_comment(
-            connection,
+    try:
+        result = create_authorized_task_comment(
+            database_path=layout.database_path,
+            layout=layout,
             task_id=task_id,
             body=body,
-            author_type="human",
+            author_type=actor_type,
             author_id=actor_id,
             mentions=tuple(mention or ()),
+            approver_id=approver_id,
         )
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    created = result.created
+    if created is None:
+        raise RuntimeError("Authorized comment creation completed without a comment.")
     typer.echo(f"{created.comment.id} {created.comment.task_id}")
     if created.mentions:
         typer.echo(f"Mentions: {len(created.mentions)}")

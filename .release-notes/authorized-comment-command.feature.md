@@ -1,0 +1,1 @@
+- Enforce agent `comment.create` capability for task comment commands.
