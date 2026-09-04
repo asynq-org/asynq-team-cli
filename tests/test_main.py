@@ -11,7 +11,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.20"
+    assert result.output.strip() == "0.1.21"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1115,6 +1115,31 @@ def test_review_requests_comment_approval_when_gated(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "supervisor  comment.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: waiting_for_review" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md").exists()
+
+
+def test_review_requests_review_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_submitted_cli_run(runner, tmp_path)
+    _replace_role_capability_policy(tmp_path, "supervisor", "review.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "review",
+            "RUN-0001",
+            "approve",
+            "Looks ready.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "supervisor  review.create  require_approval" in result.output
     assert "Approval: APR-0001 -> founder" in result.output
     assert "Status: waiting_for_review" in show_result.output
     assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md").exists()

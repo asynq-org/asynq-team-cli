@@ -1,0 +1,1 @@
+- Enforce agent `review.create` capability for run review commands.
