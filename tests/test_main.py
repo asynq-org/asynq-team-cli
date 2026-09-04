@@ -9,13 +9,14 @@ from asynq_team_core.paths import get_project_layout
 from typer.testing import CliRunner
 
 from asynq_team_cli.main import app
+from asynq_team_cli.workspace_context import CONFIG_DIR_ENV
 
 
 def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.34"
+    assert result.output.strip() == "0.1.35"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -87,6 +88,32 @@ def test_init_can_overwrite_existing_default_files(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "roles:" in policy_path.read_text(encoding="utf-8")
+
+
+def test_workspace_context_supports_commands_without_workspace_option(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_dir = tmp_path / "config"
+    workspace.mkdir()
+    env = {CONFIG_DIR_ENV: str(config_dir)}
+
+    init_result = runner.invoke(app, ["init", "--workspace", str(workspace)], env=env)
+    use_result = runner.invoke(app, ["workspace", "use", str(workspace)], env=env)
+    current_result = runner.invoke(app, ["workspace", "current"], env=env)
+    task_result = runner.invoke(
+        app,
+        ["task", "create", "Smoke task", "--brief", "Verify context."],
+        env=env,
+    )
+
+    assert init_result.exit_code == 0
+    assert use_result.exit_code == 0
+    assert f"Workspace context: {workspace.resolve()}" in use_result.output
+    assert current_result.exit_code == 0
+    assert current_result.output.strip() == str(workspace.resolve())
+    assert task_result.exit_code == 0
+    assert "TASK-0001 Smoke task" in task_result.output
+    assert (workspace / ".team" / "tasks" / "TASK-0001" / "brief.md").is_file()
 
 
 def test_status_reports_initialized_workspace(tmp_path) -> None:

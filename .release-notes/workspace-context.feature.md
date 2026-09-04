@@ -1,0 +1,1 @@
+- Add a user-local workspace context so CLI commands can omit repeated --workspace options.

@@ -54,8 +54,14 @@ from asynq_team_core.tasks import (
 )
 
 from asynq_team_cli import __version__
+from asynq_team_cli.workspace_context import (
+    clear_workspace_context,
+    load_workspace_context,
+    save_workspace_context,
+)
 
 app = typer.Typer(no_args_is_help=True)
+workspace_app = typer.Typer(no_args_is_help=True)
 task_app = typer.Typer(no_args_is_help=True)
 agent_app = typer.Typer(no_args_is_help=True)
 config_app = typer.Typer(no_args_is_help=True)
@@ -66,6 +72,7 @@ backup_app = typer.Typer(no_args_is_help=True)
 audit_app = typer.Typer(no_args_is_help=True)
 policy_app = typer.Typer(no_args_is_help=True)
 runner_app = typer.Typer(no_args_is_help=True)
+app.add_typer(workspace_app, name="workspace")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(config_app, name="config")
@@ -102,6 +109,70 @@ def main(
     ] = False,
 ) -> None:
     """Run an AI-first company from your terminal."""
+
+
+@workspace_app.command("use")
+def workspace_use_command(
+    workspace: Annotated[
+        Path,
+        typer.Argument(
+            help="Workspace directory to use by default.",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Set the default workspace for future CLI commands."""
+    try:
+        context = save_workspace_context(workspace)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Workspace context: {context.workspace}")
+
+
+@workspace_app.command("current")
+def workspace_current_command() -> None:
+    """Show the current default workspace."""
+    try:
+        context = load_workspace_context()
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if context is None:
+        typer.echo("No workspace context set.")
+        raise typer.Exit(1)
+
+    typer.echo(str(context.workspace))
+
+
+@workspace_app.command("clear")
+def workspace_clear_command() -> None:
+    """Clear the default workspace."""
+    removed = clear_workspace_context()
+    if removed:
+        typer.echo("Workspace context cleared.")
+        return
+    typer.echo("No workspace context set.")
+
+
+def _resolve_workspace(workspace: Path | None) -> Path:
+    if workspace is not None:
+        return workspace
+
+    try:
+        context = load_workspace_context()
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if context is not None:
+        return context.workspace
+
+    return Path.cwd()
 
 
 @app.command("init")
@@ -142,7 +213,7 @@ def init_command(
     ] = False,
 ) -> None:
     """Initialize local Asynq Team runtime state."""
-    target_workspace = workspace or Path.cwd()
+    target_workspace = _resolve_workspace(workspace)
     initialization = initialize_project(
         target_workspace,
         project_name=project_name,
@@ -183,7 +254,7 @@ def status_command(
     ] = None,
 ) -> None:
     """Show local runtime status."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
 
     typer.echo(f"Workspace: {layout.workspace}")
     typer.echo(f"Team dir: {_format_state(layout.team_dir.is_dir())} {layout.team_dir}")
@@ -215,7 +286,7 @@ def agent_show_command(
     ] = None,
 ) -> None:
     """Show an agent manifest summary."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         manifest = load_agent_manifest(layout, agent_id)
     except (TypeError, ValueError) as exc:
@@ -250,7 +321,7 @@ def doctor_command(
     ] = None,
 ) -> None:
     """Run local workspace diagnostics."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     report = run_doctor(layout)
 
     for check in report.checks:
@@ -285,7 +356,7 @@ def review_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Review a submitted run."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = review_authorized_run(
             database_path=layout.database_path,
@@ -382,7 +453,7 @@ def config_show_command(
     ] = None,
 ) -> None:
     """Show project-local runtime config."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     if not layout.config_path.is_file():
         typer.echo(f"Config not found: {layout.config_path}", err=True)
         raise typer.Exit(1)
@@ -407,7 +478,7 @@ def approval_show_command(
     ] = None,
 ) -> None:
     """Show an approval request."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         approval = get_approval(connection, approval_id)
 
@@ -444,7 +515,7 @@ def backup_run_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
 ) -> None:
     """Create a local database backup."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         backup = create_database_backup(
             database_path=layout.database_path,
@@ -475,7 +546,7 @@ def backup_list_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum backups to show.")] = 50,
 ) -> None:
     """List local database backups."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     backups = list_database_backups(layout, limit=limit)
 
     if not backups:
@@ -503,7 +574,7 @@ def audit_show_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum events to show.")] = 100,
 ) -> None:
     """Show task-scoped audit events."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         events = list_task_audit_events(layout.database_path, task_id, limit=limit)
     except ValueError as exc:
@@ -542,7 +613,7 @@ def policy_check_command(
     ] = None,
 ) -> None:
     """Show the capability policy decision for an agent."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         evaluation = evaluate_agent_capability(layout, agent_id, capability)
     except (TypeError, ValueError) as exc:
@@ -583,7 +654,7 @@ def policy_authorize_command(
     ] = None,
 ) -> None:
     """Authorize a capability or request the required approval."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         authorization = authorize_agent_capability(
             database_path=layout.database_path,
@@ -630,7 +701,7 @@ def runner_check_command(
     ] = None,
 ) -> None:
     """Check whether a runner tool is allowed."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         evaluation = evaluate_runner_tool(layout, tool)
     except (TypeError, ValueError) as exc:
@@ -669,7 +740,7 @@ def runner_exec_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
 ) -> None:
     """Execute a local command through runner policy."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = execute_run_command(
             database_path=layout.database_path,
@@ -719,7 +790,7 @@ def inbox_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum items to show.")] = 50,
 ) -> None:
     """List inbox items that need attention."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     parsed_status = _parse_inbox_status(status)
     with connect_database(layout.database_path) as connection:
         items = list_inbox_items(
@@ -767,7 +838,7 @@ def approvals_command(
     if context.invoked_subcommand is not None:
         return
 
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     parsed_status = _parse_approval_status(status)
     with connect_database(layout.database_path) as connection:
         approvals = list_approvals(
@@ -849,7 +920,7 @@ def _decide_approval_command(
     reason: str | None,
     approve: bool,
 ) -> None:
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         if approve:
             decision = grant_approval(
@@ -896,7 +967,7 @@ def task_create_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a task and its brief artifact."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = create_authorized_task_with_brief(
             database_path=layout.database_path,
@@ -951,7 +1022,7 @@ def task_follow_up_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a linked follow-up task."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = create_authorized_follow_up_task(
             database_path=layout.database_path,
@@ -1029,7 +1100,7 @@ def task_list_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum tasks to show.")] = 50,
 ) -> None:
     """List tasks."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         tasks = list_tasks(connection, limit=limit)
 
@@ -1057,7 +1128,7 @@ def task_show_command(
     ] = None,
 ) -> None:
     """Show a task."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         task = get_task(connection, task_id)
 
@@ -1103,7 +1174,7 @@ def task_status_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
 ) -> None:
     """Update a task status."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         try:
             task = update_task_status(
@@ -1144,7 +1215,7 @@ def task_comment_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Add a comment to a task."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = create_authorized_task_comment(
             database_path=layout.database_path,
@@ -1188,7 +1259,7 @@ def task_comments_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum comments to show.")] = 50,
 ) -> None:
     """List comments for a task."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         comments = list_task_comments(connection, task_id=task_id, limit=limit)
 
@@ -1226,7 +1297,7 @@ def run_create_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
 ) -> None:
     """Create an agent run record and artifact directory."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         created = create_run_with_artifact_dir(
             database_path=layout.database_path,
@@ -1281,7 +1352,7 @@ def run_task_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a task run and prepare its local work packet."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     effective_actor_id = actor_id or agent_id
     try:
         result = start_authorized_task_run(
@@ -1338,7 +1409,7 @@ def run_list_command(
     limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum runs to show.")] = 50,
 ) -> None:
     """List run records."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     parsed_status = _parse_run_status(status)
     with connect_database(layout.database_path) as connection:
         runs = list_runs(
@@ -1376,7 +1447,7 @@ def run_next_command(
     ] = None,
 ) -> None:
     """Show the next actionable run for an agent."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         run = get_next_agent_run(connection, agent_id)
         task = get_task(connection, run.task_id) if run is not None else None
@@ -1409,7 +1480,7 @@ def run_show_command(
     ] = None,
 ) -> None:
     """Show a run record."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     with connect_database(layout.database_path) as connection:
         run = get_run(connection, run_id)
 
@@ -1450,7 +1521,7 @@ def run_status_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
 ) -> None:
     """Update a run status."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     parsed_status = _parse_run_status(status)
     if parsed_status is None:
         raise typer.BadParameter("status must be a concrete run status")
@@ -1494,7 +1565,7 @@ def run_work_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Prepare a local work packet for a run."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = prepare_authorized_run_work_packet(
             database_path=layout.database_path,
@@ -1547,7 +1618,7 @@ def run_command_record_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
 ) -> None:
     """Record command execution metadata for a run."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         record = record_run_command(
             database_path=layout.database_path,
@@ -1602,7 +1673,7 @@ def run_file_record_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
 ) -> None:
     """Record file-change metadata for a run."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         record = record_run_file_change(
             database_path=layout.database_path,
@@ -1648,7 +1719,7 @@ def run_audit_git_command(
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
 ) -> None:
     """Record file-change audit events from a git diff."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         repo_path = _resolve_workspace_child(layout.workspace, repo, "repo")
         changes = _load_git_name_status(repo_path, base)
@@ -1713,7 +1784,7 @@ def run_submit_command(
     approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Submit a run result for review."""
-    layout = get_project_layout(workspace or Path.cwd())
+    layout = get_project_layout(_resolve_workspace(workspace))
     try:
         result = submit_authorized_run_for_review(
             database_path=layout.database_path,

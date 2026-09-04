@@ -44,6 +44,16 @@ Initialize a workspace:
 poetry run team init --workspace /path/to/workspace --project-name "Example Team"
 ```
 
+Set that workspace as your default CLI context:
+
+```bash
+poetry run team workspace use /path/to/workspace
+poetry run team workspace current
+```
+
+After a context is set, commands can omit `--workspace`. Passing `--workspace` still
+overrides the saved context for that command.
+
 Configure git artifact backup metadata at init time when the workspace should point at a
 state remote:
 
