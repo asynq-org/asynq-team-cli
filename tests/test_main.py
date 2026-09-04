@@ -15,7 +15,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.32"
+    assert result.output.strip() == "0.1.33"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1487,11 +1487,14 @@ def test_review_approves_submitted_run_and_mentions_agent(tmp_path) -> None:
         app,
         ["inbox", "--workspace", str(tmp_path), "--recipient-id", "george"],
     )
+    task_result = runner.invoke(app, ["task", "show", "TASK-0001", "--workspace", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "RUN-0001  approved" in result.output
     assert "Review: .team/runs/george/RUN-0001/review.md" in result.output
     assert "Agent notice: CMT-0002 -> george" in result.output
+    assert task_result.exit_code == 0
+    assert "Status: approved" in task_result.output
     review_artifact = tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md"
     assert review_artifact.is_file()
     assert "Looks ready." in review_artifact.read_text(encoding="utf-8")
