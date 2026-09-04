@@ -28,7 +28,10 @@ from asynq_team_core.run_submission import submit_run_for_review
 from asynq_team_core.run_task import start_task_run
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
-from asynq_team_core.task_service import create_follow_up_task, create_task_with_brief
+from asynq_team_core.task_service import (
+    create_authorized_follow_up_task,
+    create_authorized_task_with_brief,
+)
 from asynq_team_core.tasks import (
     TaskStatus,
     get_task,
@@ -717,20 +720,33 @@ def task_create_command(
         ),
     ] = None,
     priority: Annotated[str, typer.Option("--priority", help="Task priority.")] = "normal",
-    actor_id: Annotated[str, typer.Option("--actor-id", help="Human actor id.")] = "founder",
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "human",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "founder",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a task and its brief artifact."""
     layout = get_project_layout(workspace or Path.cwd())
-    created = create_task_with_brief(
-        database_path=layout.database_path,
-        layout=layout,
-        title=title,
-        brief_md=brief or title,
-        actor_type="human",
-        actor_id=actor_id,
-        priority=priority,
-    )
+    try:
+        result = create_authorized_task_with_brief(
+            database_path=layout.database_path,
+            layout=layout,
+            title=title,
+            brief_md=brief or title,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            priority=priority,
+            approver_id=approver_id,
+        )
+    except (PermissionError, TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
+    if _echo_pending_task_approval(result.authorization):
+        return
+
+    created = result.created
+    if created is None:
+        raise RuntimeError("Authorized task creation completed without a task.")
     typer.echo(f"{created.task.id} {created.task.title}")
     typer.echo(f"Brief: {created.brief.relative_path}")
 
@@ -761,11 +777,12 @@ def task_follow_up_command(
     ] = None,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a linked follow-up task."""
     layout = get_project_layout(workspace or Path.cwd())
     try:
-        created = create_follow_up_task(
+        result = create_authorized_follow_up_task(
             database_path=layout.database_path,
             layout=layout,
             parent_task_id=parent_task_id,
@@ -775,14 +792,36 @@ def task_follow_up_command(
             actor_id=actor_id,
             priority=priority,
             assignee_id=assignee_id,
+            approver_id=approver_id,
         )
-    except ValueError as exc:
+    except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    if _echo_pending_task_approval(result.authorization):
+        return
+
+    created = result.created
+    if created is None:
+        raise RuntimeError("Authorized follow-up task creation completed without a task.")
     typer.echo(f"{created.task.id} {created.task.title}")
     typer.echo(f"Parent: {created.parent_task.id}")
     typer.echo(f"Brief: {created.brief.relative_path}")
+
+
+def _echo_pending_task_approval(authorization) -> bool:
+    if authorization is None or authorization.approval_request is None:
+        return False
+
+    approval = authorization.approval_request.approval
+    inbox_item = authorization.approval_request.inbox_item
+    typer.echo(
+        f"{authorization.evaluation.agent_id}  {authorization.evaluation.capability}  "
+        f"{authorization.evaluation.decision.value}"
+    )
+    typer.echo(f"Approval: {approval.id} -> {approval.approver_id}")
+    typer.echo(f"Inbox: {inbox_item.id} -> {inbox_item.recipient_id}")
+    return True
 
 
 @task_app.command("list")

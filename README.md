@@ -74,6 +74,11 @@ poetry run team task create "Review onboarding" \
   --brief "Check first-run setup and list blockers." \
   --workspace /path/to/workspace
 
+poetry run team task create "Capture follow-up" \
+  --actor-type agent \
+  --actor-id george \
+  --workspace /path/to/workspace
+
 poetry run team task follow-up TASK-0001 "Document review checklist" \
   --brief "Capture the checklist as a future scoped improvement." \
   --workspace /path/to/workspace

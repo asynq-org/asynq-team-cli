@@ -1,0 +1,1 @@
+- Enforce agent `task.create` capability for task creation and follow-up task commands.

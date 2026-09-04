@@ -1,3 +1,4 @@
+import yaml
 from asynq_team_core.approvals import request_approval
 from asynq_team_core.database import connect_database
 from asynq_team_core.paths import get_project_layout
@@ -10,7 +11,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.17"
+    assert result.output.strip() == "0.1.18"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -455,6 +456,58 @@ def test_task_create_writes_task_and_brief(tmp_path) -> None:
     ) == "Build the first task.\n"
 
 
+def test_task_create_agent_requests_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _replace_engineer_task_create_policy(tmp_path, "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "create",
+            "Agent task",
+            "--workspace",
+            str(tmp_path),
+            "--actor-type",
+            "agent",
+            "--actor-id",
+            "george",
+        ],
+    )
+    list_result = runner.invoke(app, ["task", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  task.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Inbox: INBOX-0001 -> founder" in result.output
+    assert list_result.output.strip() == "No tasks."
+
+
+def test_task_create_agent_rejects_denied_capability(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _replace_engineer_task_create_policy(tmp_path, "deny")
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "create",
+            "Agent task",
+            "--workspace",
+            str(tmp_path),
+            "--actor-type",
+            "agent",
+            "--actor-id",
+            "george",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Capability is denied for role: engineer" in result.output
+
+
 def test_task_follow_up_creates_linked_task_and_brief(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
@@ -493,6 +546,35 @@ def test_task_follow_up_creates_linked_task_and_brief(tmp_path) -> None:
     assert (tmp_path / ".team" / "tasks" / "TASK-0002" / "brief.md").read_text(
         encoding="utf-8"
     ) == "Capture a review checklist.\n"
+
+
+def test_task_follow_up_requests_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    _replace_engineer_task_create_policy(tmp_path, "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "follow-up",
+            "TASK-0001",
+            "Refine review checklist",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    list_result = runner.invoke(app, ["task", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  task.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "TASK-0002" not in list_result.output
 
 
 def test_task_follow_up_reports_missing_parent(tmp_path) -> None:
@@ -1008,3 +1090,13 @@ def _create_cli_run(runner: CliRunner, workspace) -> None:
         ).exit_code
         == 0
     )
+
+
+def _replace_engineer_task_create_policy(workspace, target: str) -> None:
+    path = workspace / ".team" / "policy" / "capabilities.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    engineer = data["roles"]["engineer"]
+    for field in ("allow", "require_approval", "deny"):
+        engineer[field] = [item for item in engineer.get(field, []) if item != "task.create"]
+    engineer.setdefault(target, []).append("task.create")
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
