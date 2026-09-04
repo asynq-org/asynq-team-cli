@@ -14,7 +14,7 @@ The CLI is useful when you want:
 - explicit approve/deny commands for sensitive actions.
 
 It helps initialize a `.team/` workspace, create tasks, inspect runtime config, and handle the MVP human attention loop through inbox and approval commands.
-It also starts local agent runs so each agent attempt has a status, artifact directory, and prepared work packet that can be reviewed later.
+It also starts local agent runs so each agent attempt has a status, artifact directory, and prepared work packet that can be reviewed later, with policy approvals enforced before agent-written run artifacts are created.
 
 The CLI is early and pre-1.0. Command names and output may change while the MVP is still taking shape.
 

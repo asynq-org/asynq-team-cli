@@ -25,8 +25,8 @@ from asynq_team_core.project import initialize_project
 from asynq_team_core.run_review import RunReviewDecision, review_authorized_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
-from asynq_team_core.run_task import start_task_run
-from asynq_team_core.run_work import prepare_run_work_packet
+from asynq_team_core.run_task import start_authorized_task_run
+from asynq_team_core.run_work import prepare_authorized_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
 from asynq_team_core.task_service import (
     create_authorized_follow_up_task,
@@ -1085,23 +1085,31 @@ def run_task_command(
         str | None,
         typer.Option("--actor-id", help="Audit actor id. Defaults to the agent id."),
     ] = None,
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Create a task run and prepare its local work packet."""
     layout = get_project_layout(workspace or Path.cwd())
     effective_actor_id = actor_id or agent_id
     try:
-        started = start_task_run(
+        result = start_authorized_task_run(
             database_path=layout.database_path,
             layout=layout,
             task_id=task_id,
             agent_id=agent_id,
             actor_type=actor_type,
             actor_id=effective_actor_id,
+            approver_id=approver_id,
         )
-    except (TypeError, ValueError) as exc:
+    except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    started = result.started
+    if started is None:
+        raise RuntimeError("Authorized task run start completed without a run.")
     run = started.work_packet.run
     typer.echo(f"{run.id}  {run.task_id}  {run.agent_id}  {run.status.value}")
     typer.echo(f"Artifacts: {run.artifact_dir_path}")
@@ -1244,22 +1252,30 @@ def run_work_command(
     ] = False,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Prepare a local work packet for a run."""
     layout = get_project_layout(workspace or Path.cwd())
     try:
-        packet = prepare_run_work_packet(
+        result = prepare_authorized_run_work_packet(
             database_path=layout.database_path,
             layout=layout,
             run_id=run_id,
             actor_type=actor_type,
             actor_id=actor_id,
             overwrite=overwrite,
+            approver_id=approver_id,
         )
-    except (TypeError, ValueError) as exc:
+    except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    packet = result.packet
+    if packet is None:
+        raise RuntimeError("Authorized run work preparation completed without a packet.")
     typer.echo(f"{packet.run.id}  {packet.run.status.value}")
     typer.echo(f"Work packet: {packet.artifact.relative_path}")
 

@@ -844,6 +844,37 @@ def test_run_task_creates_run_and_work_packet(tmp_path) -> None:
     assert "First task" in work_packet.read_text(encoding="utf-8")
 
 
+def test_run_task_requests_artifact_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+    _replace_engineer_capability_policy(tmp_path, "artifact.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "task",
+            "TASK-0001",
+            "--agent-id",
+            "george",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    list_result = runner.invoke(app, ["run", "list", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  artifact.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "No runs." in list_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md").exists()
+
+
 def test_run_task_reports_missing_task(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
@@ -966,6 +997,21 @@ def test_run_work_writes_packet_and_marks_run_working(tmp_path) -> None:
     assert "Build the first task." in work_packet.read_text(encoding="utf-8")
 
 
+def test_run_work_requests_artifact_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    _replace_engineer_capability_policy(tmp_path, "artifact.create", "require_approval")
+
+    result = runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)])
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  artifact.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: created" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "work.md").exists()
+
+
 def test_run_work_preserves_existing_packet_by_default(tmp_path) -> None:
     runner = CliRunner()
     _create_cli_run(runner, tmp_path)
@@ -1040,6 +1086,35 @@ def test_run_submit_requests_comment_approval_when_gated(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "george  comment.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: working" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "result.md").exists()
+
+
+def test_run_submit_requests_artifact_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    assert (
+        runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)]).exit_code
+        == 0
+    )
+    _replace_engineer_capability_policy(tmp_path, "artifact.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "submit",
+            "RUN-0001",
+            "Implemented the first pass.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  artifact.create  require_approval" in result.output
     assert "Approval: APR-0001 -> founder" in result.output
     assert "Status: working" in show_result.output
     assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "result.md").exists()
@@ -1140,6 +1215,31 @@ def test_review_requests_review_approval_when_gated(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "supervisor  review.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: waiting_for_review" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md").exists()
+
+
+def test_review_requests_artifact_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_submitted_cli_run(runner, tmp_path)
+    _replace_role_capability_policy(tmp_path, "supervisor", "artifact.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "review",
+            "RUN-0001",
+            "approve",
+            "Looks ready.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "supervisor  artifact.create  require_approval" in result.output
     assert "Approval: APR-0001 -> founder" in result.output
     assert "Status: waiting_for_review" in show_result.output
     assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md").exists()
