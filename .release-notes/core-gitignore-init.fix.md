@@ -1,0 +1,1 @@
+- Sync CLI with Core init behavior that ignores local runtime SQLite files.
