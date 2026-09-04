@@ -22,9 +22,9 @@ from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.policy import authorize_agent_capability, evaluate_agent_capability
 from asynq_team_core.project import initialize_project
-from asynq_team_core.run_review import RunReviewDecision, review_run
+from asynq_team_core.run_review import RunReviewDecision, review_authorized_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
-from asynq_team_core.run_submission import submit_run_for_review
+from asynq_team_core.run_submission import submit_authorized_run_for_review
 from asynq_team_core.run_task import start_task_run
 from asynq_team_core.run_work import prepare_run_work_packet
 from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
@@ -207,11 +207,12 @@ def review_command(
     ] = False,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "supervisor",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Review a submitted run."""
     layout = get_project_layout(workspace or Path.cwd())
     try:
-        review = review_run(
+        result = review_authorized_run(
             database_path=layout.database_path,
             layout=layout,
             run_id=run_id,
@@ -220,11 +221,18 @@ def review_command(
             actor_type=actor_type,
             actor_id=actor_id,
             overwrite=overwrite,
+            approver_id=approver_id,
         )
-    except (TypeError, ValueError) as exc:
+    except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    review = result.review
+    if review is None:
+        raise RuntimeError("Authorized run review completed without a review.")
     typer.echo(f"{review.run.id}  {review.run.status.value}")
     typer.echo(f"Review: {review.artifact.relative_path}")
     typer.echo(f"Agent notice: {review.comment.comment.id} -> {review.run.agent_id}")
@@ -1285,11 +1293,12 @@ def run_submit_command(
     ] = False,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
 ) -> None:
     """Submit a run result for review."""
     layout = get_project_layout(workspace or Path.cwd())
     try:
-        submission = submit_run_for_review(
+        result = submit_authorized_run_for_review(
             database_path=layout.database_path,
             layout=layout,
             run_id=run_id,
@@ -1299,11 +1308,18 @@ def run_submit_command(
             actor_type=actor_type,
             actor_id=actor_id,
             overwrite=overwrite,
+            approver_id=approver_id,
         )
-    except (TypeError, ValueError) as exc:
+    except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    if _echo_pending_capability_approval(result.authorization):
+        return
+
+    submission = result.submission
+    if submission is None:
+        raise RuntimeError("Authorized run submission completed without a submission.")
     typer.echo(f"{submission.run.id}  {submission.run.status.value}")
     typer.echo(f"Result: {submission.artifact.relative_path}")
     typer.echo(f"Review request: {submission.comment.comment.id} -> {reviewer_id}")

@@ -11,7 +11,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.19"
+    assert result.output.strip() == "0.1.20"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1016,6 +1016,35 @@ def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:
     assert "Mention on TASK-0001" in inbox_result.output
 
 
+def test_run_submit_requests_comment_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+    assert (
+        runner.invoke(app, ["run", "work", "RUN-0001", "--workspace", str(tmp_path)]).exit_code
+        == 0
+    )
+    _replace_engineer_capability_policy(tmp_path, "comment.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "submit",
+            "RUN-0001",
+            "Implemented the first pass.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "george  comment.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: working" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "result.md").exists()
+
+
 def test_run_submit_rejects_unstarted_run(tmp_path) -> None:
     runner = CliRunner()
     _create_cli_run(runner, tmp_path)
@@ -1064,6 +1093,31 @@ def test_review_approves_submitted_run_and_mentions_agent(tmp_path) -> None:
     assert review_artifact.is_file()
     assert "Looks ready." in review_artifact.read_text(encoding="utf-8")
     assert "Mention on TASK-0001" in inbox_result.output
+
+
+def test_review_requests_comment_approval_when_gated(tmp_path) -> None:
+    runner = CliRunner()
+    _create_submitted_cli_run(runner, tmp_path)
+    _replace_role_capability_policy(tmp_path, "supervisor", "comment.create", "require_approval")
+
+    result = runner.invoke(
+        app,
+        [
+            "review",
+            "RUN-0001",
+            "approve",
+            "Looks ready.",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    show_result = runner.invoke(app, ["run", "show", "RUN-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "supervisor  comment.create  require_approval" in result.output
+    assert "Approval: APR-0001 -> founder" in result.output
+    assert "Status: waiting_for_review" in show_result.output
+    assert not (tmp_path / ".team" / "runs" / "george" / "RUN-0001" / "review.md").exists()
 
 
 def test_review_rejects_unsubmitted_run(tmp_path) -> None:
@@ -1157,10 +1211,14 @@ def _create_cli_run(runner: CliRunner, workspace) -> None:
 
 
 def _replace_engineer_capability_policy(workspace, capability: str, target: str) -> None:
+    _replace_role_capability_policy(workspace, "engineer", capability, target)
+
+
+def _replace_role_capability_policy(workspace, role: str, capability: str, target: str) -> None:
     path = workspace / ".team" / "policy" / "capabilities.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    engineer = data["roles"]["engineer"]
+    role_policy = data["roles"][role]
     for field in ("allow", "require_approval", "deny"):
-        engineer[field] = [item for item in engineer.get(field, []) if item != capability]
-    engineer.setdefault(target, []).append(capability)
+        role_policy[field] = [item for item in role_policy.get(field, []) if item != capability]
+    role_policy.setdefault(target, []).append(capability)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
