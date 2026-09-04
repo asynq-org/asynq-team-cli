@@ -22,6 +22,7 @@ from asynq_team_core.inbox import InboxItemStatus, list_inbox_items
 from asynq_team_core.paths import get_project_layout
 from asynq_team_core.policy import authorize_agent_capability, evaluate_agent_capability
 from asynq_team_core.project import initialize_project
+from asynq_team_core.run_commands import record_run_command
 from asynq_team_core.run_review import RunReviewDecision, review_authorized_run
 from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
@@ -1320,6 +1321,54 @@ def run_work_command(
         raise RuntimeError("Authorized run work preparation completed without a packet.")
     typer.echo(f"{packet.run.id}  {packet.run.status.value}")
     typer.echo(f"Work packet: {packet.artifact.relative_path}")
+
+
+@run_app.command("command")
+def run_command_record_command(
+    run_id: Annotated[str, typer.Argument(help="Run id, such as RUN-0001.")],
+    command: Annotated[str, typer.Argument(help="Command that was executed.")],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    exit_code: Annotated[int, typer.Option("--exit-code", help="Command exit code.")] = 0,
+    cwd: Annotated[
+        str | None,
+        typer.Option("--cwd", help="Working directory used for the command."),
+    ] = None,
+    duration_ms: Annotated[
+        int | None,
+        typer.Option("--duration-ms", help="Command duration in milliseconds."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[str, typer.Option("--actor-id", help="Audit actor id.")] = "george",
+) -> None:
+    """Record command execution metadata for a run."""
+    layout = get_project_layout(workspace or Path.cwd())
+    try:
+        record = record_run_command(
+            database_path=layout.database_path,
+            run_id=run_id,
+            command=command,
+            exit_code=exit_code,
+            cwd=cwd,
+            duration_ms=duration_ms,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+    except (TypeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"{record.run.id}  command  {record.event.payload['exit_code']}")
+    typer.echo(f"Event: {record.event.id}")
 
 
 @run_app.command("submit")

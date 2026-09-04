@@ -1,0 +1,1 @@
+- Add `team run command` to record command execution metadata in the run audit trail.

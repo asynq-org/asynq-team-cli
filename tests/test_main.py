@@ -1067,6 +1067,55 @@ def test_run_work_preserves_existing_packet_by_default(tmp_path) -> None:
     assert "Run work packet already exists" in result.output
 
 
+def test_run_command_records_command_audit_event(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "command",
+            "RUN-0001",
+            "poetry run pytest",
+            "--exit-code",
+            "0",
+            "--cwd",
+            "repos/core",
+            "--duration-ms",
+            "1250",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    audit_result = runner.invoke(app, ["audit", "show", "TASK-0001", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "RUN-0001  command  0" in result.output
+    assert "Event: EVT-" in result.output
+    assert "run.command_executed" in audit_result.output
+
+
+def test_run_command_reports_missing_run(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "command",
+            "RUN-9999",
+            "poetry run pytest",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run not found: RUN-9999" in result.output
+
+
 def test_run_submit_writes_result_and_mentions_reviewer(tmp_path) -> None:
     runner = CliRunner()
     _create_cli_run(runner, tmp_path)
