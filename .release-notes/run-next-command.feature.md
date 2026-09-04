@@ -1,0 +1,1 @@
+- Add `team run next` to show the next actionable run for an agent.

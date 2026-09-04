@@ -108,6 +108,7 @@ poetry run team run create TASK-0001 \
   --workspace /path/to/workspace
 
 poetry run team run list --workspace /path/to/workspace
+poetry run team run next --agent george --workspace /path/to/workspace
 poetry run team run show RUN-0001 --workspace /path/to/workspace
 poetry run team run status RUN-0001 planning --workspace /path/to/workspace
 poetry run team run work RUN-0001 --workspace /path/to/workspace

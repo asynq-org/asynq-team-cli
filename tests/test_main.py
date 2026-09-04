@@ -926,6 +926,47 @@ def test_run_list_shows_created_runs(tmp_path) -> None:
     assert "RUN-0001  created  TASK-0001  george" in result.output
 
 
+def test_run_next_shows_next_actionable_agent_run(tmp_path) -> None:
+    runner = CliRunner()
+    _create_cli_run(runner, tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "next",
+            "--agent",
+            "george",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "RUN-0001  created  TASK-0001  First task" in result.output
+    assert "Artifacts: .team/runs/george/RUN-0001" in result.output
+
+
+def test_run_next_reports_empty_queue(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "next",
+            "--agent",
+            "george",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "No actionable runs." in result.output
+
+
 def test_run_status_updates_run(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0

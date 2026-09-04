@@ -27,7 +27,13 @@ from asynq_team_core.run_service import create_run_with_artifact_dir
 from asynq_team_core.run_submission import submit_authorized_run_for_review
 from asynq_team_core.run_task import start_authorized_task_run
 from asynq_team_core.run_work import prepare_authorized_run_work_packet
-from asynq_team_core.runs import RunStatus, get_run, list_runs, update_run_status
+from asynq_team_core.runs import (
+    RunStatus,
+    get_next_agent_run,
+    get_run,
+    list_runs,
+    update_run_status,
+)
 from asynq_team_core.task_service import (
     create_authorized_follow_up_task,
     create_authorized_task_with_brief,
@@ -1158,6 +1164,42 @@ def run_list_command(
 
     for run in runs:
         typer.echo(f"{run.id}  {run.status.value}  {run.task_id}  {run.agent_id}")
+
+
+@run_app.command("next")
+def run_next_command(
+    agent_id: Annotated[
+        str,
+        typer.Option("--agent-id", "--agent", help="Agent id for the run queue."),
+    ],
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show the next actionable run for an agent."""
+    layout = get_project_layout(workspace or Path.cwd())
+    with connect_database(layout.database_path) as connection:
+        run = get_next_agent_run(connection, agent_id)
+        task = get_task(connection, run.task_id) if run is not None else None
+
+    if run is None:
+        typer.echo("No actionable runs.")
+        return
+    if task is None:
+        typer.echo(f"Task not found for run {run.id}: {run.task_id}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"{run.id}  {run.status.value}  {run.task_id}  {task.title}")
+    if run.artifact_dir_path:
+        typer.echo(f"Artifacts: {run.artifact_dir_path}")
 
 
 @run_app.command("show")
