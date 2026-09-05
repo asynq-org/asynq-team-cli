@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 import yaml
-from asynq_team_core.agent_manifests import load_agent_manifest
+from asynq_team_core.agent_manifests import list_agent_manifests, load_agent_manifest
 from asynq_team_core.approvals import (
     ApprovalStatus,
     deny_approval,
@@ -965,9 +965,9 @@ def worker_run_once_command(
         ),
     ] = None,
     agent_id: Annotated[
-        str,
-        typer.Option("--agent-id", "--agent", help="Agent id for the worker."),
-    ] = "george",
+        str | None,
+        typer.Option("--agent-id", "--agent", help="Limit this pass to one agent id."),
+    ] = None,
     requested_model: Annotated[
         str | None,
         typer.Option("--model", help="Requested model for new runs."),
@@ -982,20 +982,20 @@ def worker_run_once_command(
     """Run one local worker scheduling pass."""
     layout = get_project_layout(_resolve_workspace(workspace))
     try:
-        result = run_worker_once(
-            database_path=layout.database_path,
-            layout=layout,
-            agent_id=agent_id,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            approver_id=approver_id,
-            requested_model=requested_model,
-        )
+        for selected_agent_id in _worker_agent_ids(layout, agent_id):
+            result = run_worker_once(
+                database_path=layout.database_path,
+                layout=layout,
+                agent_id=selected_agent_id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                approver_id=approver_id,
+                requested_model=requested_model,
+            )
+            _echo_worker_run_once_result(selected_agent_id, result)
     except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-
-    _echo_worker_run_once_result(result)
 
 
 @worker_app.command("start")
@@ -1012,9 +1012,9 @@ def worker_start_command(
         ),
     ] = None,
     agent_id: Annotated[
-        str,
-        typer.Option("--agent-id", "--agent", help="Agent id for the worker."),
-    ] = "george",
+        str | None,
+        typer.Option("--agent-id", "--agent", help="Limit the worker loop to one agent id."),
+    ] = None,
     requested_model: Annotated[
         str | None,
         typer.Option("--model", help="Requested model for new runs."),
@@ -1036,21 +1036,23 @@ def worker_start_command(
 ) -> None:
     """Start a foreground local worker polling loop."""
     layout = get_project_layout(_resolve_workspace(workspace))
-    typer.echo(f"Worker started for agent {agent_id}.")
+    agent_ids = _worker_agent_ids(layout, agent_id)
+    typer.echo(f"Worker started for agents: {', '.join(agent_ids)}.")
     completed_iterations = 0
 
     try:
         while iterations is None or completed_iterations < iterations:
-            result = run_worker_once(
-                database_path=layout.database_path,
-                layout=layout,
-                agent_id=agent_id,
-                actor_type=actor_type,
-                actor_id=actor_id,
-                approver_id=approver_id,
-                requested_model=requested_model,
-            )
-            _echo_worker_run_once_result(result)
+            for selected_agent_id in agent_ids:
+                result = run_worker_once(
+                    database_path=layout.database_path,
+                    layout=layout,
+                    agent_id=selected_agent_id,
+                    actor_type=actor_type,
+                    actor_id=actor_id,
+                    approver_id=approver_id,
+                    requested_model=requested_model,
+                )
+                _echo_worker_run_once_result(selected_agent_id, result)
             completed_iterations += 1
             if iterations is not None and completed_iterations >= iterations:
                 break
@@ -1062,11 +1064,27 @@ def worker_start_command(
         raise typer.Exit(1) from exc
 
 
-def _echo_worker_run_once_result(result: WorkerRunOnceResult) -> None:
+def _worker_agent_ids(layout, agent_id: str | None) -> tuple[str, ...]:
+    if agent_id is not None:
+        return (agent_id,)
+
+    agent_ids = tuple(manifest.id for manifest in list_agent_manifests(layout))
+    return tuple(sorted(agent_ids, key=lambda value: (value != "ea", value)))
+
+
+def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> None:
     if result.task is None:
-        typer.echo("No available tasks.")
+        typer.echo(f"{agent_id}: no available tasks.")
         return
 
+    if result.routed is not None:
+        typer.echo(
+            f"{agent_id}: routed {result.routed.task.id} -> {result.routed.assignee_id}"
+        )
+        typer.echo(f"Reason: {result.routed.reason}")
+        return
+
+    typer.echo(f"{agent_id}: task {result.task.id}")
     typer.echo(f"Task: {result.task.id}  {result.task.status.value}  {result.task.title}")
     if _echo_pending_capability_approval(result.authorization):
         return

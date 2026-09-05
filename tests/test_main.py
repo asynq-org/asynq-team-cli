@@ -16,7 +16,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.41"
+    assert result.output.strip() == "0.1.42"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1120,11 +1120,32 @@ def test_worker_run_once_starts_next_task(tmp_path) -> None:
     result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
 
     assert result.exit_code == 0
+    assert "ea: routed TASK-0001 -> george" in result.output
+    assert "george: task TASK-0001" in result.output
     assert "Task: TASK-0001  in_progress  First task" in result.output
     assert "Run: RUN-0001  working  george" in result.output
     assert "Runner: codex" in result.output
     assert "Model: gpt-5-codex" in result.output
     assert "Work packet: .team/runs/george/RUN-0001/work.md" in result.output
+
+
+def test_worker_run_once_can_be_limited_to_one_agent(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        ["worker", "run-once", "--agent", "george", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "george: no available tasks." in result.output
+    assert "ea: routed" not in result.output
 
 
 def test_worker_run_once_reports_empty_queue(tmp_path) -> None:
@@ -1134,7 +1155,9 @@ def test_worker_run_once_reports_empty_queue(tmp_path) -> None:
     result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "No available tasks." in result.output
+    assert "ea: no available tasks." in result.output
+    assert "george: no available tasks." in result.output
+    assert "supervisor: no available tasks." in result.output
 
 
 def test_worker_start_supports_bounded_iterations(tmp_path) -> None:
@@ -1154,8 +1177,8 @@ def test_worker_start_supports_bounded_iterations(tmp_path) -> None:
     )
 
     assert result.exit_code == 0
-    assert "Worker started for agent george." in result.output
-    assert "No available tasks." in result.output
+    assert "Worker started for agents: ea, george, supervisor." in result.output
+    assert "ea: no available tasks." in result.output
 
 
 def test_run_task_reports_missing_task(tmp_path) -> None:

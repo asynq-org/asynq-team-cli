@@ -1,0 +1,1 @@
+- Run all configured workers by default and route unassigned tasks through EA first.
