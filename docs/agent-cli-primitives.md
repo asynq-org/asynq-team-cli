@@ -42,7 +42,16 @@ from parsing runner options before the second `--` passes the command argv to As
 poetry run team worker run-once --workspace /path/to/workspace
 poetry run team worker start --workspace /path/to/workspace
 poetry run team worker start --workspace /path/to/workspace --iterations 1
+poetry run team worker start --workspace /path/to/workspace --daemon
+poetry run team worker status --workspace /path/to/workspace
+poetry run team worker restart --workspace /path/to/workspace
+poetry run team worker stop --workspace /path/to/workspace
+poetry run team worker run-once --agent george --workspace /path/to/workspace
 ```
+
+Without `--agent`, worker commands run all configured agents with EA first. EA routes
+unassigned `created` tasks to a configured assignee; non-EA workers only pick up tasks
+assigned to their own agent id.
 
 ## Tasks
 

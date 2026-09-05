@@ -1,0 +1,1 @@
+- Document all-agent worker startup, EA routing, and daemon lifecycle commands.

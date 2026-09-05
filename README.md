@@ -51,10 +51,22 @@ poetry run team task create "Prepare the first landing page" \
   --brief "Create a small, reviewable first pass with tests."
 ```
 
-Start the local worker loop:
+Start the local worker loop for all configured agents:
 
 ```bash
 poetry run team worker start
+```
+
+The default worker loop runs EA first. EA routes unassigned tasks to the right configured
+agent, then each assigned agent can pick up its own queue.
+
+For a background worker:
+
+```bash
+poetry run team worker start --daemon
+poetry run team worker status
+poetry run team worker restart
+poetry run team worker stop
 ```
 
 For smoke tests or manual demos, use one bounded worker pass:
@@ -74,8 +86,8 @@ poetry run team status
 
 `team onboard` creates local runtime state under `.team/`, including config, SQLite
 state, default agents, default rules, default policy files, and `.gitignore` entries for
-local runtime databases. It can also set the default model and display names for the
-generated agents.
+local runtime databases and worker files. It can also set the default model and display
+names for the generated agents.
 
 Passing `--workspace` always overrides the saved workspace context for that command.
 
