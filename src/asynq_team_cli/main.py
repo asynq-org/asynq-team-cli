@@ -56,7 +56,7 @@ from asynq_team_core.tasks import (
     list_tasks,
     update_task_status,
 )
-from asynq_team_core.worker import WorkerRunOnceResult, run_worker_once
+from asynq_team_core.worker import WorkerRunOnceResult, WorkerRunReviewResult, run_worker_once
 
 from asynq_team_cli import __version__
 from asynq_team_cli.workspace_context import (
@@ -1224,6 +1224,10 @@ def _worker_agent_ids(layout, agent_id: str | None) -> tuple[str, ...]:
 
 
 def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> None:
+    if result.review is not None:
+        _echo_worker_review_result(agent_id, result.review)
+        return
+
     if result.task is None:
         typer.echo(f"{agent_id}: no available tasks.")
         return
@@ -1263,6 +1267,27 @@ def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> 
     if result.submission is not None:
         typer.echo(f"Review: {result.submission.run.id}  waiting_for_review")
         typer.echo(f"Result: {result.submission.artifact.relative_path}")
+
+
+def _echo_worker_review_result(agent_id: str, result: WorkerRunReviewResult) -> None:
+    typer.echo(f"{agent_id}: review {result.target_run_id}")
+    typer.echo(
+        f"Task: {result.target_task.id}  {result.target_task.status.value}  "
+        f"{result.target_task.title}"
+    )
+    typer.echo(f"Review packet: {result.review_packet_path}")
+    if result.execution is not None:
+        typer.echo(
+            f"Review execution: exit_code={result.execution.exit_code} "
+            f"duration_ms={result.execution.duration_ms}"
+        )
+        if result.execution.exit_code != 0:
+            return
+    if _echo_pending_capability_approval(result.authorization):
+        return
+    if result.run_review is not None:
+        typer.echo(f"Decision: {result.run_review.decision.value}")
+        typer.echo(f"Review: {result.run_review.artifact.relative_path}")
 
 
 def _start_worker_daemon(

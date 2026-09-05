@@ -17,7 +17,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.47"
+    assert result.output.strip() == "0.1.48"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1136,7 +1136,10 @@ def test_worker_run_once_starts_next_task(tmp_path) -> None:
 def test_worker_run_once_executes_runner_by_default(tmp_path) -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
-    _replace_codex_command_template(tmp_path, [sys.executable, "-c", "print('runner ok')"])
+    _replace_codex_command_template(
+        tmp_path,
+        [sys.executable, "-c", "print('Decision: approve\\n\\nReview:\\nLooks ready.')"],
+    )
     assert (
         runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
         .exit_code
@@ -1151,6 +1154,10 @@ def test_worker_run_once_executes_runner_by_default(tmp_path) -> None:
     assert "Execution: exit_code=0" in result.output
     assert "Review: RUN-0001  waiting_for_review" in result.output
     assert "Result: .team/runs/george/RUN-0001/result.md" in result.output
+    assert "supervisor: review RUN-0001" in result.output
+    assert "Review execution: exit_code=0" in result.output
+    assert "Decision: approve" in result.output
+    assert "Review: .team/runs/george/RUN-0001/review.md" in result.output
 
 
 def test_worker_run_once_can_be_limited_to_one_agent(tmp_path) -> None:

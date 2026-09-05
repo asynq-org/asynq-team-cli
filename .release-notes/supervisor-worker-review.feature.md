@@ -1,0 +1,1 @@
+- Added CLI worker output for automated supervisor review runs.

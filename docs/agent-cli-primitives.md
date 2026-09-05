@@ -55,6 +55,8 @@ unassigned `created` tasks to a configured assignee; non-EA workers only pick up
 assigned to their own agent id. By default, worker commands execute each agent's
 configured runner adapter from `.team/policy/runners.yaml`. Use `--no-execute` for a
 scheduling-only pass that creates the run and work packet without launching the runner.
+Supervisor workers also inspect runs waiting for review, prepare `review-work.md`, run
+the supervisor adapter, and write `review.md` through the same policy-gated review API.
 
 ## Tasks
 

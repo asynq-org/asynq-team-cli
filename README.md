@@ -59,7 +59,8 @@ poetry run team worker start
 
 The default worker loop runs EA first. EA routes unassigned tasks to the right configured
 agent, then each assigned agent picks up its own queue, prepares a work packet, executes
-the configured runner adapter, and submits successful runs for review.
+the configured runner adapter, and submits successful runs for review. Supervisor then
+reviews submitted runs through its own configured runner adapter.
 
 For a background worker:
 
