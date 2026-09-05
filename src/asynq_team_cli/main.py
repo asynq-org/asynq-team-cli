@@ -975,6 +975,14 @@ def worker_run_once_command(
         str | None,
         typer.Option("--model", help="Requested model for new runs."),
     ] = None,
+    execute_runner: Annotated[
+        bool,
+        typer.Option("--execute/--no-execute", help="Execute the configured runner adapter."),
+    ] = True,
+    runner_timeout_seconds: Annotated[
+        int,
+        typer.Option("--runner-timeout-seconds", min=1, help="Runner command timeout."),
+    ] = 300,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[
         str | None,
@@ -994,6 +1002,8 @@ def worker_run_once_command(
                 actor_id=actor_id,
                 approver_id=approver_id,
                 requested_model=requested_model,
+                execute_runner=execute_runner,
+                runner_timeout_seconds=runner_timeout_seconds,
             )
             _echo_worker_run_once_result(selected_agent_id, result)
     except (PermissionError, TypeError, ValueError) as exc:
@@ -1034,6 +1044,14 @@ def worker_start_command(
         bool,
         typer.Option("--daemon", help="Start the worker loop in the background."),
     ] = False,
+    execute_runner: Annotated[
+        bool,
+        typer.Option("--execute/--no-execute", help="Execute the configured runner adapter."),
+    ] = True,
+    runner_timeout_seconds: Annotated[
+        int,
+        typer.Option("--runner-timeout-seconds", min=1, help="Runner command timeout."),
+    ] = 300,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[
         str | None,
@@ -1051,6 +1069,8 @@ def worker_start_command(
             requested_model=requested_model,
             poll_seconds=poll_seconds,
             iterations=iterations,
+            execute_runner=execute_runner,
+            runner_timeout_seconds=runner_timeout_seconds,
             actor_type=actor_type,
             actor_id=actor_id,
             approver_id=approver_id,
@@ -1071,6 +1091,8 @@ def worker_start_command(
                     actor_id=actor_id,
                     approver_id=approver_id,
                     requested_model=requested_model,
+                    execute_runner=execute_runner,
+                    runner_timeout_seconds=runner_timeout_seconds,
                 )
                 _echo_worker_run_once_result(selected_agent_id, result)
             completed_iterations += 1
@@ -1161,6 +1183,14 @@ def worker_restart_command(
         int | None,
         typer.Option("--iterations", min=1, help="Stop after this many passes."),
     ] = None,
+    execute_runner: Annotated[
+        bool,
+        typer.Option("--execute/--no-execute", help="Execute the configured runner adapter."),
+    ] = True,
+    runner_timeout_seconds: Annotated[
+        int,
+        typer.Option("--runner-timeout-seconds", min=1, help="Runner command timeout."),
+    ] = 300,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[
         str | None,
@@ -1177,6 +1207,8 @@ def worker_restart_command(
         requested_model=requested_model,
         poll_seconds=poll_seconds,
         iterations=iterations,
+        execute_runner=execute_runner,
+        runner_timeout_seconds=runner_timeout_seconds,
         actor_type=actor_type,
         actor_id=actor_id,
         approver_id=approver_id,
@@ -1205,11 +1237,11 @@ def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> 
 
     typer.echo(f"{agent_id}: task {result.task.id}")
     typer.echo(f"Task: {result.task.id}  {result.task.status.value}  {result.task.title}")
-    if _echo_pending_capability_approval(result.authorization):
-        return
 
     started = result.started
     if started is None:
+        if _echo_pending_capability_approval(result.authorization):
+            return
         raise RuntimeError("Worker run-once completed without a run.")
 
     run = started.work_packet.run
@@ -1219,6 +1251,18 @@ def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> 
         typer.echo(f"Model: {run.model}")
     typer.echo(f"Artifacts: {run.artifact_dir_path}")
     typer.echo(f"Work packet: {started.work_packet.artifact.relative_path}")
+    if result.execution is not None:
+        typer.echo(
+            f"Execution: exit_code={result.execution.exit_code} "
+            f"duration_ms={result.execution.duration_ms}"
+        )
+        if result.execution.exit_code != 0:
+            return
+    if _echo_pending_capability_approval(result.authorization):
+        return
+    if result.submission is not None:
+        typer.echo(f"Review: {result.submission.run.id}  waiting_for_review")
+        typer.echo(f"Result: {result.submission.artifact.relative_path}")
 
 
 def _start_worker_daemon(
@@ -1227,6 +1271,8 @@ def _start_worker_daemon(
     requested_model: str | None,
     poll_seconds: float,
     iterations: int | None,
+    execute_runner: bool,
+    runner_timeout_seconds: int,
     actor_type: str,
     actor_id: str | None,
     approver_id: str,
@@ -1246,6 +1292,8 @@ def _start_worker_daemon(
         requested_model=requested_model,
         poll_seconds=poll_seconds,
         iterations=iterations,
+        execute_runner=execute_runner,
+        runner_timeout_seconds=runner_timeout_seconds,
         actor_type=actor_type,
         actor_id=actor_id,
         approver_id=approver_id,
@@ -1269,6 +1317,8 @@ def _worker_daemon_command(
     requested_model: str | None,
     poll_seconds: float,
     iterations: int | None,
+    execute_runner: bool,
+    runner_timeout_seconds: int,
     actor_type: str,
     actor_id: str | None,
     approver_id: str,
@@ -1283,6 +1333,8 @@ def _worker_daemon_command(
         str(workspace),
         "--poll-seconds",
         str(poll_seconds),
+        "--runner-timeout-seconds",
+        str(runner_timeout_seconds),
         "--actor-type",
         actor_type,
         "--approver-id",
@@ -1294,6 +1346,8 @@ def _worker_daemon_command(
         command.extend(["--model", requested_model])
     if iterations is not None:
         command.extend(["--iterations", str(iterations)])
+    if not execute_runner:
+        command.append("--no-execute")
     if actor_id is not None:
         command.extend(["--actor-id", actor_id])
     return command

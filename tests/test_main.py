@@ -17,7 +17,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.44"
+    assert result.output.strip() == "0.1.45"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1118,7 +1118,10 @@ def test_worker_run_once_starts_next_task(tmp_path) -> None:
         == 0
     )
 
-    result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
+    result = runner.invoke(
+        app,
+        ["worker", "run-once", "--no-execute", "--workspace", str(tmp_path)],
+    )
 
     assert result.exit_code == 0
     assert "ea: routed TASK-0001 -> george" in result.output
@@ -1128,6 +1131,26 @@ def test_worker_run_once_starts_next_task(tmp_path) -> None:
     assert "Runner: codex" in result.output
     assert "Model: gpt-5-codex" in result.output
     assert "Work packet: .team/runs/george/RUN-0001/work.md" in result.output
+
+
+def test_worker_run_once_executes_runner_by_default(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    _replace_codex_command_template(tmp_path, [sys.executable, "-c", "print('runner ok')"])
+    assert (
+        runner.invoke(app, ["task", "create", "First task", "--workspace", str(tmp_path)])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(app, ["worker", "run-once", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "ea: routed TASK-0001 -> george" in result.output
+    assert "george: task TASK-0001" in result.output
+    assert "Execution: exit_code=0" in result.output
+    assert "Review: RUN-0001  waiting_for_review" in result.output
+    assert "Result: .team/runs/george/RUN-0001/result.md" in result.output
 
 
 def test_worker_run_once_can_be_limited_to_one_agent(tmp_path) -> None:
@@ -1141,7 +1164,15 @@ def test_worker_run_once_can_be_limited_to_one_agent(tmp_path) -> None:
 
     result = runner.invoke(
         app,
-        ["worker", "run-once", "--agent", "george", "--workspace", str(tmp_path)],
+        [
+            "worker",
+            "run-once",
+            "--agent",
+            "george",
+            "--no-execute",
+            "--workspace",
+            str(tmp_path),
+        ],
     )
 
     assert result.exit_code == 0
@@ -1172,6 +1203,7 @@ def test_worker_start_supports_bounded_iterations(tmp_path) -> None:
             "start",
             "--iterations",
             "1",
+            "--no-execute",
             "--workspace",
             str(tmp_path),
         ],
@@ -1247,6 +1279,8 @@ def test_worker_start_daemon_writes_pid_and_command(tmp_path, monkeypatch) -> No
     assert "--daemon" not in command
     assert "--agent-id" in command
     assert "george" in command
+    assert "--runner-timeout-seconds" in command
+    assert "--no-execute" not in command
     assert captured["kwargs"]["start_new_session"] is True
 
 
@@ -1950,6 +1984,13 @@ def _replace_role_capability_policy(workspace, role: str, capability: str, targe
     for field in ("allow", "require_approval", "deny"):
         role_policy[field] = [item for item in role_policy.get(field, []) if item != capability]
     role_policy.setdefault(target, []).append(capability)
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _replace_codex_command_template(workspace, command_template: list[str]) -> None:
+    path = workspace / ".team" / "policy" / "runners.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["runners"]["codex"]["command_template"] = command_template
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 

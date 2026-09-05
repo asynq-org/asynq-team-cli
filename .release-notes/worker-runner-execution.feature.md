@@ -1,0 +1,1 @@
+- Made worker commands execute configured runner adapters by default, with `--no-execute` for scheduling-only passes.
