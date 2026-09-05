@@ -1,6 +1,9 @@
 """Typer entrypoint for the Asynq Team CLI."""
 
+import os
+import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -1027,6 +1030,10 @@ def worker_start_command(
         int | None,
         typer.Option("--iterations", min=1, help="Stop after this many passes."),
     ] = None,
+    daemon: Annotated[
+        bool,
+        typer.Option("--daemon", help="Start the worker loop in the background."),
+    ] = False,
     actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
     actor_id: Annotated[
         str | None,
@@ -1037,6 +1044,19 @@ def worker_start_command(
     """Start a foreground local worker polling loop."""
     layout = get_project_layout(_resolve_workspace(workspace))
     agent_ids = _worker_agent_ids(layout, agent_id)
+    if daemon:
+        _start_worker_daemon(
+            workspace=layout.workspace,
+            agent_id=agent_id,
+            requested_model=requested_model,
+            poll_seconds=poll_seconds,
+            iterations=iterations,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            approver_id=approver_id,
+        )
+        return
+
     typer.echo(f"Worker started for agents: {', '.join(agent_ids)}.")
     completed_iterations = 0
 
@@ -1062,6 +1082,105 @@ def worker_start_command(
     except (PermissionError, TypeError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+
+
+@worker_app.command("status")
+def worker_status_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Show local worker daemon status."""
+    layout = get_project_layout(_resolve_workspace(workspace))
+    pid = _read_worker_pid(layout)
+    if pid is None:
+        typer.echo("No worker daemon.")
+        return
+    if _pid_is_running(pid):
+        typer.echo(f"Worker daemon running: {pid}")
+        typer.echo(f"Log: {_worker_log_path(layout)}")
+        return
+
+    _clear_worker_pid(layout)
+    typer.echo(f"Removed stale worker daemon pid: {pid}")
+
+
+@worker_app.command("stop")
+def worker_stop_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Stop the local worker daemon."""
+    layout = get_project_layout(_resolve_workspace(workspace))
+    _stop_worker_daemon(layout)
+
+
+@worker_app.command("restart")
+def worker_restart_command(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            "-w",
+            help="Workspace directory.",
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+    agent_id: Annotated[
+        str | None,
+        typer.Option("--agent-id", "--agent", help="Limit the worker loop to one agent id."),
+    ] = None,
+    requested_model: Annotated[
+        str | None,
+        typer.Option("--model", help="Requested model for new runs."),
+    ] = None,
+    poll_seconds: Annotated[
+        float,
+        typer.Option("--poll-seconds", min=0.1, help="Delay between worker passes."),
+    ] = 5.0,
+    iterations: Annotated[
+        int | None,
+        typer.Option("--iterations", min=1, help="Stop after this many passes."),
+    ] = None,
+    actor_type: Annotated[str, typer.Option("--actor-type", help="Audit actor type.")] = "agent",
+    actor_id: Annotated[
+        str | None,
+        typer.Option("--actor-id", help="Audit actor id. Defaults to the agent id."),
+    ] = None,
+    approver_id: Annotated[str, typer.Option("--approver-id", help="Approver id.")] = "founder",
+) -> None:
+    """Restart the local worker daemon."""
+    layout = get_project_layout(_resolve_workspace(workspace))
+    _stop_worker_daemon(layout, quiet=True)
+    _start_worker_daemon(
+        workspace=layout.workspace,
+        agent_id=agent_id,
+        requested_model=requested_model,
+        poll_seconds=poll_seconds,
+        iterations=iterations,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        approver_id=approver_id,
+    )
 
 
 def _worker_agent_ids(layout, agent_id: str | None) -> tuple[str, ...]:
@@ -1100,6 +1219,158 @@ def _echo_worker_run_once_result(agent_id: str, result: WorkerRunOnceResult) -> 
         typer.echo(f"Model: {run.model}")
     typer.echo(f"Artifacts: {run.artifact_dir_path}")
     typer.echo(f"Work packet: {started.work_packet.artifact.relative_path}")
+
+
+def _start_worker_daemon(
+    workspace: Path,
+    agent_id: str | None,
+    requested_model: str | None,
+    poll_seconds: float,
+    iterations: int | None,
+    actor_type: str,
+    actor_id: str | None,
+    approver_id: str,
+) -> None:
+    layout = get_project_layout(workspace)
+    existing_pid = _read_worker_pid(layout)
+    if existing_pid is not None and _pid_is_running(existing_pid):
+        typer.echo(f"Worker daemon already running: {existing_pid}")
+        return
+    if existing_pid is not None:
+        _clear_worker_pid(layout)
+
+    _worker_state_dir(layout).mkdir(parents=True, exist_ok=True)
+    command = _worker_daemon_command(
+        workspace=workspace,
+        agent_id=agent_id,
+        requested_model=requested_model,
+        poll_seconds=poll_seconds,
+        iterations=iterations,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        approver_id=approver_id,
+    )
+    with _worker_log_path(layout).open("ab") as log_file:
+        process = subprocess.Popen(
+            command,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    _write_worker_pid(layout, process.pid)
+    typer.echo(f"Worker daemon started: {process.pid}")
+    typer.echo(f"Log: {_worker_log_path(layout)}")
+
+
+def _worker_daemon_command(
+    workspace: Path,
+    agent_id: str | None,
+    requested_model: str | None,
+    poll_seconds: float,
+    iterations: int | None,
+    actor_type: str,
+    actor_id: str | None,
+    approver_id: str,
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "asynq_team_cli.main",
+        "worker",
+        "start",
+        "--workspace",
+        str(workspace),
+        "--poll-seconds",
+        str(poll_seconds),
+        "--actor-type",
+        actor_type,
+        "--approver-id",
+        approver_id,
+    ]
+    if agent_id is not None:
+        command.extend(["--agent-id", agent_id])
+    if requested_model is not None:
+        command.extend(["--model", requested_model])
+    if iterations is not None:
+        command.extend(["--iterations", str(iterations)])
+    if actor_id is not None:
+        command.extend(["--actor-id", actor_id])
+    return command
+
+
+def _stop_worker_daemon(layout, quiet: bool = False) -> None:
+    pid = _read_worker_pid(layout)
+    if pid is None:
+        if not quiet:
+            typer.echo("No worker daemon.")
+        return
+    if not _pid_is_running(pid):
+        _clear_worker_pid(layout)
+        if not quiet:
+            typer.echo(f"Removed stale worker daemon pid: {pid}")
+        return
+
+    os.kill(pid, signal.SIGTERM)
+    if not _wait_until_stopped(pid):
+        typer.echo(f"Worker daemon did not stop: {pid}", err=True)
+        raise typer.Exit(1)
+    _clear_worker_pid(layout)
+    if not quiet:
+        typer.echo(f"Worker daemon stopped: {pid}")
+
+
+def _wait_until_stopped(pid: int, timeout_seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not _pid_is_running(pid):
+            return True
+        time.sleep(0.1)
+    return not _pid_is_running(pid)
+
+
+def _worker_state_dir(layout) -> Path:
+    return layout.team_dir / "worker"
+
+
+def _worker_pid_path(layout) -> Path:
+    return _worker_state_dir(layout) / "worker.pid"
+
+
+def _worker_log_path(layout) -> Path:
+    return _worker_state_dir(layout) / "worker.log"
+
+
+def _read_worker_pid(layout) -> int | None:
+    path = _worker_pid_path(layout)
+    if not path.is_file():
+        return None
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except ValueError:
+        _clear_worker_pid(layout)
+        return None
+
+
+def _write_worker_pid(layout, pid: int) -> None:
+    _worker_state_dir(layout).mkdir(parents=True, exist_ok=True)
+    _worker_pid_path(layout).write_text(f"{pid}\n", encoding="utf-8")
+
+
+def _clear_worker_pid(layout) -> None:
+    _worker_pid_path(layout).unlink(missing_ok=True)
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid < 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 @app.command("inbox")
@@ -2292,3 +2563,7 @@ def _parse_review_decision(value: str) -> RunReviewDecision:
         return RunReviewDecision(value)
     except ValueError as exc:
         raise typer.BadParameter("decision must be approve or return") from exc
+
+
+if __name__ == "__main__":
+    app()

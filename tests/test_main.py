@@ -8,6 +8,7 @@ from asynq_team_core.database import connect_database
 from asynq_team_core.paths import get_project_layout
 from typer.testing import CliRunner
 
+from asynq_team_cli import main as cli_main
 from asynq_team_cli.main import app
 from asynq_team_cli.workspace_context import CONFIG_DIR_ENV
 
@@ -16,7 +17,7 @@ def test_cli_prints_version() -> None:
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.42"
+    assert result.output.strip() == "0.1.43"
 
 
 def test_init_creates_runtime_state(tmp_path) -> None:
@@ -1179,6 +1180,74 @@ def test_worker_start_supports_bounded_iterations(tmp_path) -> None:
     assert result.exit_code == 0
     assert "Worker started for agents: ea, george, supervisor." in result.output
     assert "ea: no available tasks." in result.output
+
+
+def test_worker_status_reports_no_daemon(tmp_path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+
+    result = runner.invoke(app, ["worker", "status", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "No worker daemon." in result.output
+
+
+def test_worker_stop_removes_stale_pid(tmp_path, monkeypatch) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    worker_dir = tmp_path / ".team" / "worker"
+    worker_dir.mkdir()
+    (worker_dir / "worker.pid").write_text("424242\n", encoding="utf-8")
+    monkeypatch.setattr(cli_main, "_pid_is_running", lambda pid: False)
+
+    result = runner.invoke(app, ["worker", "stop", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Removed stale worker daemon pid: 424242" in result.output
+    assert not (worker_dir / "worker.pid").exists()
+
+
+def test_worker_start_daemon_writes_pid_and_command(tmp_path, monkeypatch) -> None:
+    runner = CliRunner()
+    captured = {}
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+
+    assert runner.invoke(app, ["init", "--workspace", str(tmp_path)]).exit_code == 0
+    monkeypatch.setattr(cli_main.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(cli_main, "_pid_is_running", lambda pid: False)
+
+    result = runner.invoke(
+        app,
+        [
+            "worker",
+            "start",
+            "--daemon",
+            "--agent",
+            "george",
+            "--iterations",
+            "1",
+            "--poll-seconds",
+            "0.1",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    command = captured["command"]
+    assert result.exit_code == 0
+    assert "Worker daemon started: 4242" in result.output
+    assert (tmp_path / ".team" / "worker" / "worker.pid").read_text() == "4242\n"
+    assert command[:3] == [sys.executable, "-m", "asynq_team_cli.main"]
+    assert "--daemon" not in command
+    assert "--agent-id" in command
+    assert "george" in command
+    assert captured["kwargs"]["start_new_session"] is True
 
 
 def test_run_task_reports_missing_task(tmp_path) -> None:

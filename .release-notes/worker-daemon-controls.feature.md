@@ -1,0 +1,1 @@
+- Add worker daemon start, status, stop, and restart controls.
