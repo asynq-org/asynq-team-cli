@@ -1,0 +1,1 @@
+- Synced CLI development lockfile with Core 0.1.40.
