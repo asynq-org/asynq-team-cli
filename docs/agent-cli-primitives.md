@@ -47,11 +47,14 @@ poetry run team worker status --workspace /path/to/workspace
 poetry run team worker restart --workspace /path/to/workspace
 poetry run team worker stop --workspace /path/to/workspace
 poetry run team worker run-once --agent george --workspace /path/to/workspace
+poetry run team worker run-once --workspace /path/to/workspace --no-execute
 ```
 
 Without `--agent`, worker commands run all configured agents with EA first. EA routes
 unassigned `created` tasks to a configured assignee; non-EA workers only pick up tasks
-assigned to their own agent id.
+assigned to their own agent id. By default, worker commands execute each agent's
+configured runner adapter from `.team/policy/runners.yaml`. Use `--no-execute` for a
+scheduling-only pass that creates the run and work packet without launching the runner.
 
 ## Tasks
 

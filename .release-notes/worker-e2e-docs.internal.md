@@ -1,0 +1,1 @@
+- Documented the worker E2E execution flow and scheduling-only `--no-execute` mode.
